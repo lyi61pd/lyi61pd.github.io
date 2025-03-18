@@ -2,18 +2,9 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   
   <url>
-    <loc>http://example.com/2025/03/13/Hey-there/</loc>
+    <loc>https://lyi61pd.github.io/2025/03/18/%E4%BB%8B%E7%BB%8D/</loc>
     
-    <lastmod>2025-03-13</lastmod>
-    
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  
-  <url>
-    <loc>http://example.com/2025/03/13/hello-world/</loc>
-    
-    <lastmod>2025-03-13</lastmod>
+    <lastmod>2025-03-18</lastmod>
     
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>
@@ -21,8 +12,8 @@
   
 
   <url>
-    <loc>http://example.com/</loc>
-    <lastmod>2025-03-13</lastmod>
+    <loc>https://lyi61pd.github.io/</loc>
+    <lastmod>2025-03-18</lastmod>
     <changefreq>daily</changefreq>
     <priority>1.0</priority>
   </url>
