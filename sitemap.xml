@@ -2,6 +2,15 @@
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   
   <url>
+    <loc>https://lyi61pd.github.io/2025/04/03/Redis/</loc>
+    
+    <lastmod>2025-04-03</lastmod>
+    
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  
+  <url>
     <loc>https://lyi61pd.github.io/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/</loc>
     
     <lastmod>2025-04-03</lastmod>
@@ -29,6 +38,15 @@
   </url>
   
   <url>
+    <loc>https://lyi61pd.github.io/tags/</loc>
+    
+    <lastmod>2025-04-03</lastmod>
+    
+    <changefreq>monthly</changefreq>
+    <priority>0.6</priority>
+  </url>
+  
+  <url>
     <loc>https://lyi61pd.github.io/link/</loc>
     
     <lastmod>2025-04-03</lastmod>
@@ -39,15 +57,6 @@
   
   <url>
     <loc>https://lyi61pd.github.io/talk/</loc>
-    
-    <lastmod>2025-04-03</lastmod>
-    
-    <changefreq>monthly</changefreq>
-    <priority>0.6</priority>
-  </url>
-  
-  <url>
-    <loc>https://lyi61pd.github.io/tags/</loc>
     
     <lastmod>2025-04-03</lastmod>
     
