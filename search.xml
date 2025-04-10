@@ -1,0 +1,2725 @@
+<?xml version="1.0" encoding="utf-8"?>
+<search>
+  <entry>
+    <title>Linux延迟绑定</title>
+    <url>/2025/04/03/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/</url>
+    <content><![CDATA[<h1 id="Windows-下-lib-dll-obj-exe"><a href="#Windows-下-lib-dll-obj-exe" class="headerlink" title="Windows 下.lib .dll .obj .exe"></a>Windows 下.lib .dll .obj .exe</h1><p>.lib 是静态链接文件</p>
+<p>.dll 是动态链接文件</p>
+<p>.obj 是编译时生成的中间代码文件，比如一个项目有多个.c 文件，编译时会先全部生成为中间 obj 文件，然后在进行链接生成最终的 exe 文件</p>
+<p>.exe 文件是可执行文件</p>
+<h1 id="Linux-下-o-so-a"><a href="#Linux-下-o-so-a" class="headerlink" title="Linux 下.o .so .a"></a>Linux 下.o .so .a</h1><p>.o 类似于 Windows 下的.obj 文件，是编译中间产物</p>
+<p>.so 是动态链接文件</p>
+<p>.a 是静态链接文件,可通过如下命令将中间文件加进 output.a 或者新生成一个 output.a</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">创建.a的命令</span><br><span class="line">ar rcx output.a test1.o test2.o</span><br></pre></td></tr></table></figure>
+
+<h2 id="Linux-延迟绑定机制"><a href="#Linux-延迟绑定机制" class="headerlink" title="Linux 延迟绑定机制"></a>Linux 延迟绑定机制</h2><h3 id="使用的-C-语言例子"><a href="#使用的-C-语言例子" class="headerlink" title="使用的 C 语言例子"></a>使用的 C 语言例子</h3><figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">//-------------------------------------------------------------------</span><br><span class="line">// FileName: test1.c</span><br><span class="line">// Author: hexuelin</span><br><span class="line">// Copyright (c) UnionTech.</span><br><span class="line">//-------------------------------------------------------------------</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">void stack_overflow()&#123;</span><br><span class="line"> char buf[64] = &#123;0&#125;;</span><br><span class="line"> scanf(&quot;%s&quot;, &amp;buf);</span><br><span class="line"> printf(&quot;hello %s\n&quot;, &amp;buf);</span><br><span class="line">&#125;</span><br><span class="line">void get_shell()&#123;</span><br><span class="line"> system(&quot;/bin/sh&quot;);</span><br><span class="line">&#125;</span><br><span class="line">int main(int argc, char const *argv[])&#123;</span><br><span class="line"> stack_overflow();</span><br><span class="line"> return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="静态链接和动态链接"><a href="#静态链接和动态链接" class="headerlink" title="静态链接和动态链接"></a>静态链接和动态链接</h2><p>静态链接在编译时把需要用到的内容都链接到文件中</p>
+<p>动态链接则是会在程序执行时再进行链接</p>
+<p>因此静态链接明显会比动态链接文件要大，同样的执行速度也会更快</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">#编译时加上-static参数就是静态链接</span><br><span class="line">gcc title.c -o title_static -static</span><br><span class="line">#不加参数默认就是动态链接</span><br><span class="line">gcc title.c -o title</span><br></pre></td></tr></table></figure>
+
+<p><img src="https://cdn.nlark.com/yuque/0/2025/png/22226417/1744249758419-7eb479dc-c5a7-480c-b6c9-5e819fc619dc.png"></p>
+<p><img src="/home/pudding/.config/Typora/typora-user-images/image-20220927081955353.png"></p>
+<p><img src="https://cdn.nlark.com/yuque/0/2025/png/22226417/1744249762197-97ee9ea1-40e2-4e94-9614-7c13c154a324.png"></p>
+<p><img src="/home/pudding/.config/Typora/typora-user-images/image-20220927081932074.png"></p>
+<h3 id="部分寄存器以及部分汇编指令"><a href="#部分寄存器以及部分汇编指令" class="headerlink" title="部分寄存器以及部分汇编指令"></a>部分寄存器以及部分汇编指令</h3><p>下面的汇编指令，部分用其他指令替代作为解释，但是实际上并不能用替代的指令，比如 rip,rsp 寄存器，原则上并不允许直接对他们进行操作</p>
+<ul>
+<li>rip</li>
+</ul>
+<p>指向下一条要执行的命令（还没有执行）</p>
+<p>push 1</p>
+<ul>
+<li>rsp</li>
+</ul>
+<p>栈顶</p>
+<ul>
+<li>rbp</li>
+</ul>
+<p>栈底</p>
+<ul>
+<li>mov rax,1</li>
+</ul>
+<p>rax&#x3D;1</p>
+<ul>
+<li>add rax,1</li>
+</ul>
+<p>rax&#x3D;rax+1</p>
+<ul>
+<li>push rax</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">add rsp,一个字长（64位一个字长就是64位，8字节）</span><br><span class="line">mov [rsp],rax</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>jmp 0x6666</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">mov rip,0x6666</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>call printf<a href="/plt">@plt </a></li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">#printf@plt是一个地址,这个地址的备注名叫做printf@plt</span><br><span class="line">push rip</span><br><span class="line">jmp printf@plt</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>leave</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">mov rsp,rbp</span><br><span class="line">pop rbp</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>retn</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">pop rip</span><br></pre></td></tr></table></figure>
+
+<h3 id="libc-so-6"><a href="#libc-so-6" class="headerlink" title="libc.so.6"></a>libc.so.6</h3><p>libc 是 Stantard C Library 的简称，它是符合 ANSI C 标准的一个标准函数库。</p>
+<p>在 Linux 操作系统下所说的 libc 即 glibc。glibc 是类 Unix 操作系统中使用最广泛的 libc 库，它的全称是 GNU C Library.</p>
+<h3 id="PLT-和-GOT"><a href="#PLT-和-GOT" class="headerlink" title="PLT 和 GOT"></a>PLT 和 GOT</h3><p><strong>PLT</strong>表称为过程链接表（procedure linkage table）</p>
+<p><strong>GOT</strong>表称为全局偏移量表（global offset table）</p>
+<p><strong>用不太严谨的话来概况，首先可以这么理解</strong>：</p>
+<pre><code>**GOT**表中存储真正的函数地址
+
+
+
+**PLT**表中存储的是**GOT**表中的地址
+
+
+
+调用函数时会先到PLT表，再由PLT表导向GOT表
+</code></pre>
+<p>**GOT[0]**包含.dynamic 段的地址，.dynamic 段包含了动态链接器用来绑定过程地址的信息，比如符号的位置和重定位信息</p>
+<p>**GOT[1]**包含动态链接器的标识</p>
+<p>**GOT[2]**包含动态链接器的延迟绑定代码的入口点，也就是调用_dl_runtime_resolve 函数，延迟绑定的时候要调用的函数</p>
+<p>printf 第一次调用的时候 got 表中是没有实际地址的， 第一次调用 printf 的时候  ，最终会调用_dl_runtime_resolve 函数，这个函数的作用就是把 prtinf 函数的实际地址写入到 GOT 表中，之后如果第二次，第三次。。。调用 printf 的时候就能从 GOT 表直接获取到 printf 的地址了</p>
+<p><strong>GOT</strong>表中正式的函数地址要从 GOT[3]开始，也就是第四项</p>
+<p>举例：PLT 表中 printf<a href="/plt">@plt </a></p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">jmp printf@got.plt</span><br><span class="line">push printf在got表中的编号</span><br><span class="line">jmp plt表第一行指令</span><br></pre></td></tr></table></figure>
+
+<p>举例: GOT 表中 printf<a href="/got.plt">@got.plt </a></p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">第一次执行printf时：PLT表中printf@plt的第二行</span><br><span class="line">第二三四次执行printf时：动态链接库libc中函数printf的真实地址</span><br></pre></td></tr></table></figure>
+
+<h3 id="延迟绑定机制下-函数初次调用流程图"><a href="#延迟绑定机制下-函数初次调用流程图" class="headerlink" title="延迟绑定机制下,函数初次调用流程图"></a>延迟绑定机制下,函数初次调用流程图</h3><p><img src="/home/pudding/.config/Typora/typora-user-images/image-20221227175617070.png"><img src="https://cdn.nlark.com/yuque/0/2025/png/22226417/1744249859364-e8ace29f-3caf-46ab-b72d-b8a6a9abdab5.png"></p>
+<h3 id="IDA-查看-PLT-表"><a href="#IDA-查看-PLT-表" class="headerlink" title="IDA 查看 PLT 表"></a>IDA 查看 PLT 表</h3><p><img src="/home/pudding/.config/Typora/typora-user-images/image-20221227180005879.png"><img src="https://cdn.nlark.com/yuque/0/2025/png/22226417/1744249774986-45335481-e777-4191-9e00-c872f5da5f7a.png"></p>
+<h3 id="IDA-查看-GOT-表"><a href="#IDA-查看-GOT-表" class="headerlink" title="IDA 查看 GOT 表"></a>IDA 查看 GOT 表</h3><p><img src="/home/pudding/.config/Typora/typora-user-images/image-20221227180052673.png"><img src="https://cdn.nlark.com/yuque/0/2025/png/22226417/1744249779063-2d695725-69ae-4ddb-9ac7-3550bf6799f5.png"></p>
+<h3 id="plt-got-got-plt"><a href="#plt-got-got-plt" class="headerlink" title=".plt     .got    .got.plt"></a>.plt     .got    .got.plt</h3><p>这三者是 ELF 文件格式中的节(section)</p>
+<p>.plt 就是 PLT 表</p>
+<p>.got 和.got.plt 统称为 GOT 表</p>
+<p>.got 里面直接存储的就是函数调用的地址，部分函数地址是直接存放在.got 里面的</p>
+<p>PLT 表指向的是.got.plt</p>
+<p>printf@plt 指向的就是 printf<a href="/got.plt">@got.plt </a></p>
+<p>第一次调用时<a href="mailto:&#112;&#114;&#105;&#110;&#116;&#102;&#64;&#103;&#111;&#x74;&#x2e;&#112;&#x6c;&#x74;">printf@got.plt</a>里指向的是 printf@plt 的下一行也就是 push printf 对应的 got 表里的序号</p>
+<p>放在.got 里的相当于.got.plt 第一次调用之后的状态</p>
+<h3 id="RELRO"><a href="#RELRO" class="headerlink" title="RELRO"></a>RELRO</h3><figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">#关闭RELRO</span><br><span class="line">gcc title.c -o title_no -z norelro</span><br><span class="line">#部分开启RELRO(Partial RELRO不加参数默认是这个)</span><br><span class="line">gcc title.c -o title_partial -z lazy</span><br><span class="line">#完全开启RELRO(Full RELRO)</span><br><span class="line">gcc title.c -o title_full -z now</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>RELRO，<a href="https://so.csdn.net/so/search?q=%E5%A0%86%E6%A0%88&spm=1001.2101.3001.7020">堆栈</a>地址随机化， 是一种用于加强对 binary 数据段的保护的技术。</li>
+<li>由于 GOT 和 PLT 以及延迟绑定的原因，在启用延迟绑定时，符号解析只发生在第一次使用的时候，该过程是通过 PLT 表进行的，解析完成后，相应的 GOT 条目会被修改为正确的函数地址。因此，在延迟绑定的情况下。.got.plt 必须可写，这就给了攻击者篡改地址劫持程序的执行的可能。</li>
+<li>RELRO（ReLocation Read-Only）机制的提出就是为了解决延迟绑定的安全问题，他将符号重定位表设置为只读，或者在程序启动时就解析并绑定所有的动态符号，从而避免 GOT 上的地址被篡改。RELRO 有两种形式：<ul>
+<li>partial RELRO：一些段（包括.dynamic,.got 等）在初始化后会被标记为只读。在 unbuntu16.04（GCC-5.4.0）上，默认开启 Partial RELRO。</li>
+<li>Full RELRO ：除了 Partial RELRO，延迟绑定将被禁止，所有的导入符号将在开始时被解析，.got.plt 段会被完全初始化为目标函数的最终地址，并被 mprotect 标记为只读，但其实.got.plt 会被直接合并到.got，也就看不到这段了。另外 link_map 和_dl_runtime_reolve 的地址也不会被装入。开启 Full RELRO 会对程序启动时的性能造成一定的影响，但也只有这样才能防止攻击者篡改 GOT。</li>
+</ul>
+</li>
+</ul>
+]]></content>
+      <tags>
+        <tag>Linux</tag>
+        <tag>二进制</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>C2</title>
+    <url>/2025/04/08/C2/</url>
+    <content><![CDATA[<h1 id="C2基础"><a href="#C2基础" class="headerlink" title="C2基础"></a>C2基础</h1><h2 id="什么是-C2-框架"><a href="#什么是-C2-框架" class="headerlink" title="什么是 C2 框架"></a>什么是 C2 框架</h2><p>C2（Command &amp; Control）框架是攻击链中控制阶段的核心部分，用于红队与植入目标主机的木马（Agent&#x2F;Beacon）之间建立通信，执行命令、收集信息、上传下载文件、做横向移动等等。C2 框架的本质是一套包含控制端（Server）与客户端（Payload&#x2F;Beacon）的通信系统。</p>
+<hr>
+<h2 id="主流-C2-框架架构设计拆解"><a href="#主流-C2-框架架构设计拆解" class="headerlink" title="主流 C2 框架架构设计拆解"></a>主流 C2 框架架构设计拆解</h2><h3 id="Cobalt-Strike"><a href="#Cobalt-Strike" class="headerlink" title="Cobalt Strike"></a>Cobalt Strike</h3><p><strong>结构组成：</strong></p>
+<ul>
+<li><strong>Team Server</strong>：C2 控制端，负责所有 Beacon 的统一管理。</li>
+<li><strong>Beacon</strong>：客户端的植入载荷，支持多种通信方式（HTTP、HTTPS、DNS、SMB 等）。</li>
+<li><strong>Aggressor Script</strong>：脚本引擎，支持行为自动化。</li>
+<li><strong>Client GUI</strong>：操作端，用于管理和执行命令。</li>
+</ul>
+<p><strong>特点：</strong></p>
+<ul>
+<li>Beacon 模块化强，通信协议支持自定义混淆。</li>
+<li>强大的内存马管理与无文件攻击能力。</li>
+<li>配合 Malleable C2 支持流量伪装成任意合法 Web 通信。</li>
+</ul>
+<h3 id="Sliver"><a href="#Sliver" class="headerlink" title="Sliver"></a>Sliver</h3><p><strong>结构组成：</strong></p>
+<ul>
+<li><strong>Server（sliver-server）</strong>：核心服务端，gRPC + TLS 通信。</li>
+<li><strong>Client（sliver-client）</strong>：CLI 或 Web UI，操作指令中心。</li>
+<li><strong>Implants（sliver implants）</strong>：客户端植入程序，支持多平台（Windows&#x2F;Linux&#x2F;macOS）。</li>
+<li><strong>Transport</strong>：支持多协议通信（HTTP&#x2F;HTTPS、DNS、MTLS、Wireguard）。</li>
+</ul>
+<p><strong>特点：</strong></p>
+<ul>
+<li>开源，Go 编写，便于二次开发。</li>
+<li>支持多种 listener&#x2F;transport，灵活性强。</li>
+<li>支持反射 DLL 注入、BOF 执行（内存模块化执行）。</li>
+<li>强大的 OPSEC 特性，比如动态切换通信信道。</li>
+</ul>
+<h3 id="Metasploit-Framework"><a href="#Metasploit-Framework" class="headerlink" title="Metasploit Framework"></a>Metasploit Framework</h3><p><strong>结构组成：</strong></p>
+<ul>
+<li><strong>msfconsole</strong>：主控台，命令行交互中心。</li>
+<li><strong>exploit&#x2F;payload 模块</strong>：负责漏洞利用与载荷投递。</li>
+<li><strong>handler（multi&#x2F;handler）</strong>：监听器，用来接收回连。</li>
+<li><strong>Meterpreter</strong>：高度模块化的反向连接 shell。</li>
+</ul>
+<p><strong>特点：</strong></p>
+<ul>
+<li>经典老牌，模块最全，生态强大。</li>
+<li>Meterpreter 支持脚本、插件、内存加载模块。</li>
+<li>强大但略显笨重，不如 Cobalt Strike 那么轻巧隐蔽。</li>
+</ul>
+<hr>
+<h2 id="常见功能模块对比"><a href="#常见功能模块对比" class="headerlink" title="常见功能模块对比"></a>常见功能模块对比</h2><table>
+<thead>
+<tr>
+<th>功能模块</th>
+<th>Cobalt Strike</th>
+<th>Sliver</th>
+<th>Metasploit</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>多协议通信</td>
+<td>支持</td>
+<td>支持</td>
+<td>支持</td>
+</tr>
+<tr>
+<td>模块热插拔</td>
+<td>强</td>
+<td>中</td>
+<td>弱（Meterpreter 限）</td>
+</tr>
+<tr>
+<td>内存执行</td>
+<td>强（BOF）</td>
+<td>强（BOF）</td>
+<td>中</td>
+</tr>
+<tr>
+<td>插件扩展性</td>
+<td>Aggressor 脚本</td>
+<td>自定义模块</td>
+<td>Ruby 模块化</td>
+</tr>
+<tr>
+<td>操作系统支持</td>
+<td>Windows 为主</td>
+<td>Win&#x2F;Linux&#x2F;macOS</td>
+<td>Win&#x2F;Linux</td>
+</tr>
+<tr>
+<td>UI</td>
+<td>图形界面</td>
+<td>CLI&#x2F;Web UI</td>
+<td>CLI</td>
+</tr>
+<tr>
+<td>流量混淆</td>
+<td>Malleable C2</td>
+<td>支持多种伪装方式</td>
+<td>基础混淆</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="常见问题理解"><a href="#常见问题理解" class="headerlink" title="常见问题理解"></a>常见问题理解</h2><h3 id="为什么-C2-通信协议多样化重要？"><a href="#为什么-C2-通信协议多样化重要？" class="headerlink" title="为什么 C2 通信协议多样化重要？"></a>为什么 C2 通信协议多样化重要？</h3><p>不同的网络环境下，有的端口封闭、有的协议被 DPI 检测，通信多样化能提高植入后的存活率和隐蔽性。</p>
+<h3 id="什么是-BOF（Beacon-Object-File）？"><a href="#什么是-BOF（Beacon-Object-File）？" class="headerlink" title="什么是 BOF（Beacon Object File）？"></a>什么是 BOF（Beacon Object File）？</h3><p>BOF 是 Cobalt Strike 引入的一种运行内存模块的小型 C 语言对象文件，可以在 Beacon 中直接运行，无需生成 EXE 或 DLL，从而提升隐蔽性。Sliver 也支持类似机制。</p>
+<h3 id="如何理解“无文件攻击”？"><a href="#如何理解“无文件攻击”？" class="headerlink" title="如何理解“无文件攻击”？"></a>如何理解“无文件攻击”？</h3><p>无文件攻击指的是不在硬盘落地任何可执行文件，所有操作都在内存中完成（例如通过 PowerShell、Reflective DLL Injection、BOF 等方式），这可以绕过大部分杀软的文件监控策略。</p>
+<h3 id="这些框架能扩展吗？"><a href="#这些框架能扩展吗？" class="headerlink" title="这些框架能扩展吗？"></a>这些框架能扩展吗？</h3><ul>
+<li>Cobalt Strike 的 Aggressor Script 可以写自动化逻辑、钓鱼剧本等。</li>
+<li>Sliver 本身就是开源的，开发者可以基于其 gRPC 接口写出新模块或整合其他工具。</li>
+<li>Metasploit 框架最容易写模块，自带模板功能，开发周期短。</li>
+</ul>
+<hr>
+<h2 id="红队研发该如何深入学习这些框架？"><a href="#红队研发该如何深入学习这些框架？" class="headerlink" title="红队研发该如何深入学习这些框架？"></a>红队研发该如何深入学习这些框架？</h2><ol>
+<li><strong>实操为主</strong>：搭环境，打靶场，不懂的功能就翻官方文档和社区。</li>
+<li><strong>读源码&#x2F;脚本</strong>：<ul>
+<li>Sliver 是 Go 写的，可以研究通信和 implant 架构。</li>
+<li>Aggressor Script 学会后能帮你自动化红队很多流程。</li>
+</ul>
+</li>
+<li><strong>看流量包分析通信协议</strong>：理解通信包结构对规避检测很有帮助。</li>
+<li><strong>做开发小模块</strong>：比如给 Sliver 增加一个新的 transport，或者给 Meterpreter 写一个提权模块。</li>
+</ol>
+<h1 id="Cobalt-Strike-1"><a href="#Cobalt-Strike-1" class="headerlink" title="Cobalt Strike"></a>Cobalt Strike</h1><p>好嘞，那我们从 Cobalt Strike 开始拆，一步步搞清楚它的整体架构、核心组件、通信机制、扩展能力还有一些常见的玩法。这玩意虽然闭源，但文档详细、生态成熟，基本是红队的标配了。</p>
+<hr>
+<h2 id="Cobalt-Strike-架构核心理解"><a href="#Cobalt-Strike-架构核心理解" class="headerlink" title="Cobalt Strike 架构核心理解"></a>Cobalt Strike 架构核心理解</h2><p>Cobalt Strike 整体架构是经典的 C2 结构，分为控制端（Team Server）和被控端（Beacon），中间通过 Listener 建立通信通道。可以简单理解为：</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">[CS Client GUI] → [Team Server] ←→ [Beacon]</span><br></pre></td></tr></table></figure>
+
+<h3 id="1-Team-Server（服务端）"><a href="#1-Team-Server（服务端）" class="headerlink" title="1. Team Server（服务端）"></a>1. Team Server（服务端）</h3><ul>
+<li>所有 Beacon 的连接都汇聚到这里。</li>
+<li>接收 GUI 发来的操作命令，下发给 Beacon。</li>
+<li>支持多个 listener，可用不同协议监听不同 implant。</li>
+<li>支持操作记录、会话管理、任务队列、证书伪造等功能。</li>
+</ul>
+<p>启动方式通常是：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">./teamserver &lt;公网IP&gt; &lt;密码&gt;</span><br></pre></td></tr></table></figure>
+
+<p>TeamServer 是服务端大脑，很多 hook 和扩展逻辑其实都要和它打交道。</p>
+<hr>
+<h3 id="2-Beacon（客户端-植入端）"><a href="#2-Beacon（客户端-植入端）" class="headerlink" title="2. Beacon（客户端&#x2F;植入端）"></a>2. Beacon（客户端&#x2F;植入端）</h3><p>Beacon 是攻击者植入目标系统中的主力载荷，是 Cobalt Strike 的核心组件之一。它的设计非常灵活，支持多种执行方式和通信协议。</p>
+<p><strong>支持的通信方式：</strong></p>
+<ul>
+<li><code>HTTP</code> &#x2F; <code>HTTPS</code>：常见 web 通道，配合 Malleable C2 做流量伪装。</li>
+<li><code>DNS</code>：低速但高隐蔽，适合静默场景。</li>
+<li><code>SMB</code>：横向移动常用，内网通信，免出网。</li>
+<li><code>TCP</code> &#x2F; <code>Named Pipe</code>：定制场景用得多。</li>
+</ul>
+<p><strong>Beacon 的通信机制：</strong></p>
+<ul>
+<li>默认是“轮询式通信”：<ul>
+<li>Beacon 每隔一段时间（默认 60s）主动回连 Team Server。</li>
+<li>这个时间间隔（sleep）和 jitter（抖动）可以配置。</li>
+</ul>
+</li>
+<li>通信全程加密（SSL&#x2F;TLS），可通过 Malleable Profile 自定义。</li>
+</ul>
+<hr>
+<h3 id="3-Listener（监听器）"><a href="#3-Listener（监听器）" class="headerlink" title="3. Listener（监听器）"></a>3. Listener（监听器）</h3><p>Listener 是在 Team Server 上开的一种“通信协议通道”，Beacon 会回连到这个 listener。</p>
+<p>你可以配置不同协议的 listener，比如：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">Listener: HTTPS</span><br><span class="line">Payload: windows/beacon_https/reverse_https</span><br><span class="line">Host: https://c2.example.com</span><br></pre></td></tr></table></figure>
+
+<p>Listener 是一个非常灵活的点，它支持用同一 Team Server 管多个 Beacon 会话，分别回连到不同端口、协议、路径、伪装页面。</p>
+<hr>
+<h2 id="Malleable-C2：伪装大师"><a href="#Malleable-C2：伪装大师" class="headerlink" title="Malleable C2：伪装大师"></a>Malleable C2：伪装大师</h2><p>这是 Cobalt Strike 最大的核心卖点之一。</p>
+<p>它允许你自定义 C2 流量的 HTTP 请求&#x2F;响应外观，能伪装成合法网站（如微软更新、CDN 等），极大地提升流量隐蔽性。</p>
+<p><strong>Malleable C2 配置结构：</strong></p>
+<figure class="highlight c"><table><tr><td class="code"><pre><span class="line"><span class="built_in">set</span> useragent <span class="string">&quot;Mozilla/5.0 (Windows NT 10.0; Win64; x64)&quot;</span>;</span><br><span class="line">http-get &#123;</span><br><span class="line">  <span class="built_in">set</span> uri <span class="string">&quot;/api/status&quot;</span>;</span><br><span class="line">  client &#123;</span><br><span class="line">    header <span class="string">&quot;Accept&quot;</span> <span class="string">&quot;application/json&quot;</span>;</span><br><span class="line">  &#125;</span><br><span class="line">  server &#123;</span><br><span class="line">    output &#123;</span><br><span class="line">      base64;</span><br><span class="line">    &#125;</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>Cobalt Strike 本身提供了大量的 Malleable C2 profile 示例，比如 mimicking GitHub、Google、Microsoft 等常见服务。</p>
+<hr>
+<h2 id="Aggressor-Script：自动化和扩展利器"><a href="#Aggressor-Script：自动化和扩展利器" class="headerlink" title="Aggressor Script：自动化和扩展利器"></a>Aggressor Script：自动化和扩展利器</h2><p>Aggressor Script 是基于 JavaScript-like 的脚本语言，用于编写自动化流程和 UI 交互功能。</p>
+<p><strong>功能包括：</strong></p>
+<ul>
+<li>自动生成 phishing 邮件、payload。</li>
+<li>会话上线后自动执行命令。</li>
+<li>自定义菜单、界面组件。</li>
+<li>和外部工具联动（如 C2lint、Threat Intel）。</li>
+</ul>
+<p>例如：</p>
+<figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">on beacon_initial &#123;</span><br><span class="line">  <span class="title function_">binput</span>($1, <span class="string">&quot;whoami\n&quot;</span>);</span><br><span class="line">  <span class="title function_">binput</span>($1, <span class="string">&quot;net user\n&quot;</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这个脚本会在 beacon 上线时自动执行两个命令。</p>
+<hr>
+<h2 id="Cobalt-Strike-的一些经典功能模块"><a href="#Cobalt-Strike-的一些经典功能模块" class="headerlink" title="Cobalt Strike 的一些经典功能模块"></a>Cobalt Strike 的一些经典功能模块</h2><ul>
+<li><strong>攻击载荷生成（Payload Generator）</strong>：<ul>
+<li>EXE、DLL、PS1、SCT、HTA、Java、Shellcode 全家桶支持。</li>
+<li>可通过 Artifact Kit 自定义绕杀签名。</li>
+</ul>
+</li>
+<li><strong>提权（Privilege Escalation）</strong>：<ul>
+<li>UAC Bypass、令牌劫持、SeImpersonate 工具集成。</li>
+</ul>
+</li>
+<li><strong>横向移动（Lateral Movement）</strong>：<ul>
+<li>PsExec、WMI、WinRM、SMB Beacon 派发。</li>
+</ul>
+</li>
+<li><strong>会话管理</strong>：<ul>
+<li>Beacon 可以与其他 Beacon 建立 SMB 通道（类似链式代理）。</li>
+<li>也支持在多 TeamServer 之间跳转（多级代理）。</li>
+</ul>
+</li>
+</ul>
+<hr>
+<h2 id="常见问题答疑"><a href="#常见问题答疑" class="headerlink" title="常见问题答疑"></a>常见问题答疑</h2><h3 id="Beacon-会话为什么看起来“断断续续”？"><a href="#Beacon-会话为什么看起来“断断续续”？" class="headerlink" title="Beacon 会话为什么看起来“断断续续”？"></a>Beacon 会话为什么看起来“断断续续”？</h3><p>因为默认是轮询通信（sleep 模式），不是实时连接。需要理解 <code>sleep</code> 和 <code>jitter</code> 对通信行为的影响。可以通过 <code>sleep 0</code> 设置为实时响应。</p>
+<h3 id="如何提升-Beacon-隐蔽性？"><a href="#如何提升-Beacon-隐蔽性？" class="headerlink" title="如何提升 Beacon 隐蔽性？"></a>如何提升 Beacon 隐蔽性？</h3><ul>
+<li>使用 HTTPS 或 DNS 通信；</li>
+<li>自定义 Malleable C2 Profile；</li>
+<li>Beacon Payload 用 shellcode loader 包裹，绕过查杀；</li>
+<li>配合睡眠混淆（sleep_mask）模块进行内存隐藏。</li>
+</ul>
+<h3 id="如何使用-BOF-模块？"><a href="#如何使用-BOF-模块？" class="headerlink" title="如何使用 BOF 模块？"></a>如何使用 BOF 模块？</h3><p>BOF（Beacon Object File）是 Cobalt Strike 新版支持的内存模块加载方式，类似动态链接库，在 Beacon 中加载执行但不会落地。</p>
+<p>执行方式类似：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">bof mymodule.o arg1 arg2</span><br></pre></td></tr></table></figure>
+
+<p>BOF 用 C 写，编译成 COFF 文件。</p>
+<hr>
+<p>如果你接下来想动手搭个实验环境，或者深入看看 Beacon 的 payload 是怎么生效的，我可以接着带你拆 payload 结构或者讲讲 bypass AV&#x2F;EDR 的套路。你想先搞哪个？</p>
+<h1 id="Aggressor-Script"><a href="#Aggressor-Script" class="headerlink" title="Aggressor Script"></a><strong>Aggressor Script</strong></h1><p>Aggressor Script 是 Cobalt Strike 内置的一套脚本语言，用来 <strong>扩展 Cobalt Strike 的功能、实现自动化操作、增强交互性</strong>。它是基于 JavaScript 的语法风格，但专门为红队场景定制了一套 API，可以直接操作 Beacon、界面、事件钩子等。</p>
+<p>简单来说，<strong>它就是给 Cobalt Strike 加外挂的方式</strong>，很多高级玩法都离不开它，比如：</p>
+<ul>
+<li>Beacon 上线自动执行命令</li>
+<li>自定义右键菜单</li>
+<li>监听某个事件触发自定义行为</li>
+<li>与外部工具联动（Web API、自动打点、图标美化…）</li>
+</ul>
+<hr>
+<h2 id="Aggressor-Script-能干啥？"><a href="#Aggressor-Script-能干啥？" class="headerlink" title="Aggressor Script 能干啥？"></a>Aggressor Script 能干啥？</h2><p>我按功能分类列一下，让你有个整体感觉。</p>
+<h3 id="1-自动响应事件（事件驱动）"><a href="#1-自动响应事件（事件驱动）" class="headerlink" title="1. 自动响应事件（事件驱动）"></a>1. 自动响应事件（事件驱动）</h3><figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">on beacon_initial &#123;</span><br><span class="line">  <span class="title function_">binput</span>($1, <span class="string">&quot;whoami\n&quot;</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>Beacon 刚上线时，自动执行 <code>whoami</code> 命令。</p>
+<h3 id="2-扩展菜单-UI"><a href="#2-扩展菜单-UI" class="headerlink" title="2. 扩展菜单 &#x2F; UI"></a>2. 扩展菜单 &#x2F; UI</h3><figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">popup beacon_top &#123;</span><br><span class="line">  item <span class="string">&quot;列出用户&quot;</span> &#123;</span><br><span class="line">    <span class="title function_">binput</span>($1, <span class="string">&quot;net user\n&quot;</span>);</span><br><span class="line">  &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>在 Beacon 右键菜单中加一项“列出用户”，点一下就发送命令。</p>
+<h3 id="3-自定义函数-模块化脚本"><a href="#3-自定义函数-模块化脚本" class="headerlink" title="3. 自定义函数 &#x2F; 模块化脚本"></a>3. 自定义函数 &#x2F; 模块化脚本</h3><figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">sub say_hello &#123;</span><br><span class="line">  <span class="title function_">println</span>(<span class="string">&quot;Hello, Aggressor!&quot;</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>可以封装一些重复逻辑，形成工具包式结构。</p>
+<h3 id="4-自动生成钓鱼文件、Payload-载荷"><a href="#4-自动生成钓鱼文件、Payload-载荷" class="headerlink" title="4. 自动生成钓鱼文件、Payload 载荷"></a>4. 自动生成钓鱼文件、Payload 载荷</h3><figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">on ready &#123;</span><br><span class="line">  <span class="title function_">artifact</span>(<span class="string">&quot;windows/beacon_http/reverse_http&quot;</span>, <span class="string">&quot;exe&quot;</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>启动后自动生成一个载荷文件。</p>
+<h3 id="5-网络联动-REST-API-调用"><a href="#5-网络联动-REST-API-调用" class="headerlink" title="5. 网络联动 &#x2F; REST API 调用"></a>5. 网络联动 &#x2F; REST API 调用</h3><figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line"><span class="title function_">local</span>(<span class="string">&#x27;$res&#x27;</span>);</span><br><span class="line">$res = <span class="title function_">http</span>(<span class="string">&quot;GET&quot;</span>, <span class="string">&quot;http://127.0.0.1/api/status&quot;</span>);</span><br><span class="line"><span class="title function_">println</span>(<span class="string">&quot;Status: $res&quot;</span>);</span><br></pre></td></tr></table></figure>
+
+<p>可以向外部系统发请求，比如联动监控平台、调度框架等。</p>
+<hr>
+<h2 id="常用函数-命令速查（选几个经典的）"><a href="#常用函数-命令速查（选几个经典的）" class="headerlink" title="常用函数&#x2F;命令速查（选几个经典的）"></a>常用函数&#x2F;命令速查（选几个经典的）</h2><table>
+<thead>
+<tr>
+<th>函数名</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>binput()</code></td>
+<td>向 Beacon 会话发命令</td>
+</tr>
+<tr>
+<td><code>beacons()</code></td>
+<td>获取当前所有 beacon 会话列表</td>
+</tr>
+<tr>
+<td><code>println()</code></td>
+<td>输出调试信息到控制台</td>
+</tr>
+<tr>
+<td><code>http()</code></td>
+<td>发起 HTTP 请求</td>
+</tr>
+<tr>
+<td><code>popup</code></td>
+<td>自定义右键菜单</td>
+</tr>
+<tr>
+<td><code>artifact()</code></td>
+<td>自动生成 Payload 文件</td>
+</tr>
+<tr>
+<td><code>open</code></td>
+<td>弹出输入框&#x2F;对话框</td>
+</tr>
+<tr>
+<td><code>dialog_text</code></td>
+<td>自定义图形输入对话框</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="Aggressor-Script-编写-加载"><a href="#Aggressor-Script-编写-加载" class="headerlink" title="Aggressor Script 编写&amp;加载"></a>Aggressor Script 编写&amp;加载</h2><h3 id="写法"><a href="#写法" class="headerlink" title="写法"></a>写法</h3><p>以 <code>.cna</code> 为后缀名（Cobalt Strike Native Aggressor）</p>
+<p>例如：<code>autorun.cna</code></p>
+<figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">on beacon_initial &#123;</span><br><span class="line">  <span class="title function_">println</span>(<span class="string">&quot;Beacon上线啦！&quot;</span>);</span><br><span class="line">  <span class="title function_">binput</span>($1, <span class="string">&quot;whoami\n&quot;</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h3 id="加载方式"><a href="#加载方式" class="headerlink" title="加载方式"></a>加载方式</h3><p>在 GUI 的 <strong>Cobalt Strike → Scripts</strong> 菜单中点击 Load，选中你的 <code>.cna</code> 脚本即可。</p>
+<p>也可以用命令行加载：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">./cobaltstrike.client -&gt; Scripts -&gt; Load -&gt; autorun.cna</span><br></pre></td></tr></table></figure>
+
+
+
+<h1 id="Beacon-Stager-Stage-Listener"><a href="#Beacon-Stager-Stage-Listener" class="headerlink" title="Beacon Stager Stage Listener"></a>Beacon Stager Stage Listener</h1><h2 id="1-Listener：监听器"><a href="#1-Listener：监听器" class="headerlink" title="1. Listener：监听器"></a>1. Listener：监听器</h2><p><strong>作用：</strong><br>Listener 是 Cobalt Strike 设置的一个“通信入口”，用来监听 Beacon 的回连请求。</p>
+<ul>
+<li>每个 Listener 对应一个通信协议（HTTP&#x2F;HTTPS&#x2F;DNS&#x2F;SMB&#x2F;TCP 等）。</li>
+<li>在 TeamServer 上配置后，Beacon 就通过这个 Listener 回连。</li>
+</ul>
+<hr>
+<h2 id="2-Stager：阶段载荷加载器（小型启动器）"><a href="#2-Stager：阶段载荷加载器（小型启动器）" class="headerlink" title="2. Stager：阶段载荷加载器（小型启动器）"></a>2. Stager：阶段载荷加载器（小型启动器）</h2><p><strong>作用：</strong><br>Stager 是一个体积极小的初始 payload，专门用来从 C2 下载真正的 Beacon（也就是 stage），目的是减小落地载荷体积，方便绕过防御。</p>
+<p><strong>流程：</strong></p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">[目标主机] ←→ [Stager 载荷] → 请求 Listener → 下载完整 Beacon（stage） → 注入执行</span><br></pre></td></tr></table></figure>
+
+<p><strong>特点：</strong></p>
+<ul>
+<li>体积小（几 KB）；</li>
+<li>可以是 shellcode、PowerShell、一段 exe，也可以是 exploit payload；</li>
+<li>有点像“下载器”，用来拉取主菜。</li>
+</ul>
+<hr>
+<h2 id="3-Stage：主载荷（Beacon）"><a href="#3-Stage：主载荷（Beacon）" class="headerlink" title="3. Stage：主载荷（Beacon）"></a>3. Stage：主载荷（Beacon）</h2><p><strong>作用：</strong><br>Stage 就是完整功能的 Beacon，包含所有核心逻辑（通信模块、命令处理、内存管理、插件加载等）。</p>
+<p>当 Stager 成功运行，会连接 Listener 获取完整的 Beacon（二进制代码）并加载到内存执行。</p>
+<p><strong>特点：</strong></p>
+<ul>
+<li>可以反射注入，不落地；</li>
+<li>功能完整，可持久化通信；</li>
+<li>体积大（几十到几百 KB）。</li>
+</ul>
+<hr>
+<h2 id="4-Beacon：Cobalt-Strike-的客户端"><a href="#4-Beacon：Cobalt-Strike-的客户端" class="headerlink" title="4. Beacon：Cobalt Strike 的客户端"></a>4. Beacon：Cobalt Strike 的客户端</h2><p><strong>作用：</strong><br>Beacon 是 Cobalt Strike 的 implant，它和 Team Server 通信，等待执行命令。它是 CS 攻击链的核心。</p>
+<p><strong>Beacon 的能力：</strong></p>
+<ul>
+<li>命令执行；</li>
+<li>文件上传下载；</li>
+<li>横向移动；</li>
+<li>注入其他进程；</li>
+<li>内存加载模块（BOF）；</li>
+<li>通信自适应（切换 sleep、切换通道）；</li>
+<li>模拟键盘、屏幕截图、凭证抓取等等。</li>
+</ul>
+<hr>
+<h2 id="举个例子（完整流程）"><a href="#举个例子（完整流程）" class="headerlink" title="举个例子（完整流程）"></a>举个例子（完整流程）</h2><p>假设使用的是 <code>windows/beacon_http/reverse_http</code> 类型的 payload：</p>
+<ol>
+<li>创建一个 HTTP 类型的 Listener；</li>
+<li>生成一个 Stager（例如 PowerShell 脚本）；</li>
+<li>用户执行这个 Stager，Stager 向 Listener 发起请求；</li>
+<li>Listener 下发完整的 Stage（Beacon）；</li>
+<li>Beacon 加载成功，建立持久会话；</li>
+<li>后续所有操作通过 Beacon 通信完成。</li>
+</ol>
+<hr>
+<h2 id="简单对比总结"><a href="#简单对比总结" class="headerlink" title="简单对比总结"></a>简单对比总结</h2><table>
+<thead>
+<tr>
+<th>名称</th>
+<th>本质</th>
+<th>作用</th>
+<th>是否落地</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Listener</td>
+<td>通信服务端口</td>
+<td>Beacon 的接收点</td>
+<td>是</td>
+</tr>
+<tr>
+<td>Stager</td>
+<td>小型载荷下载器</td>
+<td>下载主载荷（stage）</td>
+<td>可落地</td>
+</tr>
+<tr>
+<td>Stage</td>
+<td>完整的 Beacon</td>
+<td>植入目标并执行命令</td>
+<td>通常内存</td>
+</tr>
+<tr>
+<td>Beacon</td>
+<td>客户端（implant）</td>
+<td>和 C2 通信、收发命令</td>
+<td>通常内存</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="实战中常见使用方式"><a href="#实战中常见使用方式" class="headerlink" title="实战中常见使用方式"></a>实战中常见使用方式</h2><ul>
+<li><strong>Staged Payload（默认方式）：</strong><br>小载荷负责拉取大载荷，隐蔽性高，但被拦截风险大（多阶段）。</li>
+<li><strong>Stageless Payload（不分段）：</strong><br>Beacon 一次性打包在 payload 中，适合写 shellcode loader，体积大但部署简单，绕杀更灵活。</li>
+</ul>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 生成一个包含完整 beacon 的 shellcode</span></span><br><span class="line">生成方式：Attacks → Packages → Payload Generator → stageless</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h1 id="DPI"><a href="#DPI" class="headerlink" title="DPI"></a>DPI</h1><p><strong>DPI</strong> 是 <strong>Deep Packet Inspection（深度包检测）</strong> 的缩写，是一种网络安全技术，用于深入分析网络通信数据包的内容，而不仅仅是查看数据包的表面信息（如头部信息）。DPI 可以通过检查网络数据包的每一层内容，帮助检测和阻止各种网络威胁、恶意活动和合规性问题。</p>
+<p>DPI 在数据包传输过程中逐个检查数据包的每一部分，尤其是数据部分（Payload），以便进行深层次的分析。它与传统的 <strong>包过滤</strong> 技术不同，后者通常只检查数据包的头部信息，如源地址、目的地址、端口号等。</p>
+<ol>
+<li><strong>数据包捕获</strong>：DPI 设备（例如防火墙、入侵检测系统 IDS、入侵防御系统 IPS）在网络中捕获传输的数据包。</li>
+<li><strong>协议分析</strong>：DPI 会解析数据包的每一层协议（例如 IP、TCP、HTTP、DNS 等），并对内容进行深度检查。</li>
+<li><strong>模式匹配</strong>：它会查找已知的攻击模式、恶意软件签名或协议的异常行为。</li>
+<li><strong>内容检查</strong>：它检查数据包中的内容，包括文件、电子邮件、网页内容、应用数据等，来识别潜在的恶意行为或泄露的信息。</li>
+</ol>
+<hr>
+<h1 id="Cobalt-Strike-的心跳检测"><a href="#Cobalt-Strike-的心跳检测" class="headerlink" title="Cobalt Strike 的心跳检测"></a>Cobalt Strike 的心跳检测</h1><h2 id="Cobalt-Strike-的心跳检测机制"><a href="#Cobalt-Strike-的心跳检测机制" class="headerlink" title="Cobalt Strike 的心跳检测机制"></a>Cobalt Strike 的心跳检测机制</h2><p>Cobalt Strike 的心跳检测机制是用来保持目标系统与 Cobalt Strike 服务器之间稳定连接的技术，防止因网络防御系统（如防火墙、入侵检测系统 IDS）检测到长时间没有活动而切断连接。通过定期发送“心跳包”，Cobalt Strike 可以保持与目标系统的通信，确保不会被中断。</p>
+<h2 id="Beacon-的心跳机制是怎么工作的"><a href="#Beacon-的心跳机制是怎么工作的" class="headerlink" title="Beacon 的心跳机制是怎么工作的"></a>Beacon 的心跳机制是怎么工作的</h2><p>Beacon 是被控端，在目标机器里运行后，它会定时主动向 C2（Team Server）“打个招呼”，看看有没有新命令。这个定时打招呼的行为就叫做“心跳”或“回连”。</p>
+<h3 id="核心机制"><a href="#核心机制" class="headerlink" title="核心机制"></a>核心机制</h3><ul>
+<li><strong>通信方式</strong>：Beacon 主动发起 HTTP、HTTPS、DNS、SMB 等请求，向监听器询问“有命令没？”</li>
+<li><strong>非长连接</strong>：Beacon 不是 WebSocket 这种实时长连接，而是<strong>轮询式短连接</strong>。</li>
+<li><strong>状态无感知</strong>：Beacon 和 Team Server 没有持久连接，断了也不会立刻知道，只能通过心跳间隔判断“它是不是还活着”。</li>
+</ul>
+<hr>
+<h2 id="关键参数：sleep-和-jitter"><a href="#关键参数：sleep-和-jitter" class="headerlink" title="关键参数：sleep 和 jitter"></a>关键参数：sleep 和 jitter</h2><p>Cobalt Strike 中，Beacon 心跳频率是可以<strong>精细配置</strong>的，两个最重要的参数是：</p>
+<h3 id="1-sleep"><a href="#1-sleep" class="headerlink" title="1. sleep"></a>1. <code>sleep</code></h3><ul>
+<li>表示 Beacon 每次执行完任务后，<strong>等待多长时间再去联系 Team Server</strong>。</li>
+<li>默认值是 60 秒，实际操作中推荐设置得更长（比如 150s、300s），降低被发现的概率。</li>
+</ul>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="built_in">sleep</span> 150</span><br></pre></td></tr></table></figure>
+
+<h3 id="2-jitter"><a href="#2-jitter" class="headerlink" title="2. jitter"></a>2. <code>jitter</code></h3><ul>
+<li>用来“抖动” sleep 的时间，避免 Beacon 以<strong>固定频率通信被检测</strong>。</li>
+<li>jitter 是一个百分比，例如：</li>
+</ul>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="built_in">sleep</span> 120 30</span><br></pre></td></tr></table></figure>
+
+<p>表示每次 Beacon 回连的时间为 <strong>120 秒 ± 30%</strong>，即 84~156 秒之间波动。</p>
+<hr>
+<h2 id="Beacon-的心跳行为具体细节"><a href="#Beacon-的心跳行为具体细节" class="headerlink" title="Beacon 的心跳行为具体细节"></a>Beacon 的心跳行为具体细节</h2><ol>
+<li>Beacon 每次 sleep 结束，发起一次请求（HTTP&#x2F;DNS&#x2F;…）；</li>
+<li>请求内容包括机器信息、任务请求、状态信息等；</li>
+<li>Team Server 返回命令（如果有的话）；</li>
+<li>Beacon 执行命令，把结果下一次心跳上传；</li>
+<li>重复上述流程。</li>
+</ol>
+<h3 id="重要特性"><a href="#重要特性" class="headerlink" title="重要特性"></a>重要特性</h3><ul>
+<li><strong>非交互性命令</strong>会等下一次心跳才收到；</li>
+<li><strong>交互式命令</strong>（比如 shell、powershell）会切换为短 sleep，模拟“实时”交互；</li>
+<li>当 Beacon 检测不到 C2 时，会自动重试，但重试间隔也基于 sleep 配置。</li>
+</ul>
+<hr>
+<h2 id="配置-Beacon-的心跳行为"><a href="#配置-Beacon-的心跳行为" class="headerlink" title="配置 Beacon 的心跳行为"></a>配置 Beacon 的心跳行为</h2><p>Cobalt Strike 中可以通过 Beacon Console 配置：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 设置 Beacon 每 120 秒上线一次，jitter 为 30%</span></span><br><span class="line"><span class="built_in">sleep</span> 120 30</span><br></pre></td></tr></table></figure>
+
+<p>还可以使用 Aggressor Script 来自动配置每个新上线的 Beacon：</p>
+<figure class="highlight javascript"><table><tr><td class="code"><pre><span class="line">on beacon_initial &#123;</span><br><span class="line">  <span class="title function_">binput</span>($1, <span class="string">&quot;sleep 300 20\n&quot;</span>);</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="如何检测-Beacon-是否还活着"><a href="#如何检测-Beacon-是否还活着" class="headerlink" title="如何检测 Beacon 是否还活着"></a>如何检测 Beacon 是否还活着</h2><p>Team Server 端会根据 Beacon 的心跳记录来判断状态：</p>
+<ul>
+<li>如果超出 sleep + jitter 的预期窗口未上线，就会在 Beacon 列表中标红；</li>
+<li>可以主动发送命令看看是否响应，间接判断会话是否失效。</li>
+</ul>
+<hr>
+<h2 id="与流量检测的关系"><a href="#与流量检测的关系" class="headerlink" title="与流量检测的关系"></a>与流量检测的关系</h2><p>很多 IDS&#x2F;EDR 就是靠检测 Beacon 的“心跳行为”来识别 C2 通信的：</p>
+<ul>
+<li>长时间无用户交互却持续访问某 IP；</li>
+<li>心跳周期固定；</li>
+<li>请求包格式特征明显（如固定 URI、User-Agent）。</li>
+</ul>
+<h3 id="对策"><a href="#对策" class="headerlink" title="对策"></a>对策</h3><ul>
+<li>配置合理的 sleep + jitter；</li>
+<li>使用 DNS、HTTPS 通信掩盖真实内容；</li>
+<li>配合 Malleable C2 伪装请求头、URL、响应体；</li>
+<li>使用分布式 Beacon（SMB 内网跳板、TCP 链式 Beacon）减小出网频率。</li>
+</ul>
+<h1 id="Beacon-的通信机制"><a href="#Beacon-的通信机制" class="headerlink" title="Beacon 的通信机制"></a>Beacon 的通信机制</h1><h2 id="Beacon-的通信模式：交互式-vs-非交互式"><a href="#Beacon-的通信模式：交互式-vs-非交互式" class="headerlink" title="Beacon 的通信模式：交互式 vs 非交互式"></a>Beacon 的通信模式：交互式 vs 非交互式</h2><h3 id="默认：非交互式（非实时）"><a href="#默认：非交互式（非实时）" class="headerlink" title="默认：非交互式（非实时）"></a>默认：非交互式（非实时）</h3><p>Beacon 默认是在 sleep 间隔内轮询式通信，它执行一个命令，结果等下次回连才传回来。这种模式叫 <strong>non-interactive mode</strong>，优点是隐蔽，缺点是慢。</p>
+<h3 id="临时：交互式（实时）"><a href="#临时：交互式（实时）" class="headerlink" title="临时：交互式（实时）"></a>临时：交互式（实时）</h3><p>当操作人员在 Beacon 控制台中使用一些<strong>交互性很强的命令</strong>时，比如：</p>
+<ul>
+<li><code>shell</code> &#x2F; <code>powershell</code>（临时打开一个 shell）；</li>
+<li><code>execute-assembly</code>（手动操作 .NET 程序）；</li>
+<li><code>keylogger</code>；</li>
+<li><code>browserpivot</code>。</li>
+</ul>
+<p>Beacon 会临时切换为交互式模式，将 sleep 调整为极短（比如 1s），频繁回连，实现“实时命令响应”。</p>
+<p><strong>注意：</strong></p>
+<ul>
+<li>交互结束后，会自动恢复原本 sleep。</li>
+<li>如果遇到防火墙、代理、NDR 监控，频繁访问可能暴露。</li>
+</ul>
+<p>可以通过命令显式切换：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 临时设置为 5 秒 sleep 进行交互</span></span><br><span class="line"><span class="built_in">sleep</span> 5</span><br><span class="line"><span class="comment"># 恢复为 300s</span></span><br><span class="line"><span class="built_in">sleep</span> 300</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="Sleep-Mask-睡眠混淆机制"><a href="#Sleep-Mask-睡眠混淆机制" class="headerlink" title="Sleep Mask 睡眠混淆机制"></a>Sleep Mask 睡眠混淆机制</h2><p>这个是高阶 OPSEC 配置的核心功能之一，尤其针对 <strong>内存扫描</strong> 和 <strong>行为监控</strong> 非常重要。</p>
+<h3 id="问题背景："><a href="#问题背景：" class="headerlink" title="问题背景："></a>问题背景：</h3><p>Beacon 在 sleep 过程中虽然没在通信，但它的代码&#x2F;数据依然在内存里，这很容易被杀软扫描器查到。</p>
+<p>例如：</p>
+<ul>
+<li>某段 Beacon shellcode 一直驻留在内存；</li>
+<li>某个 DLL 被挂起但签名异常；</li>
+<li>某进程占用高权限但无 UI。</li>
+</ul>
+<h3 id="什么是-Sleep-Mask？"><a href="#什么是-Sleep-Mask？" class="headerlink" title="什么是 Sleep Mask？"></a>什么是 Sleep Mask？</h3><p>Sleep Mask 是一种“<strong>睡眠时清理痕迹</strong>”的技术机制。其核心思想是：</p>
+<p>Beacon 进入 sleep 前自动清空&#x2F;加密自己的内存区域，只留下一个极简的恢复 stub。</p>
+<h3 id="工作流程："><a href="#工作流程：" class="headerlink" title="工作流程："></a>工作流程：</h3><ol>
+<li>Beacon 准备 sleep → 保存状态；</li>
+<li>清空或加密自身的内存（包括代码段）；</li>
+<li>挂起自己，等待定时器触发；</li>
+<li>时间到 → 恢复自身代码 → 继续执行下一步。</li>
+</ol>
+<h3 id="开启方式："><a href="#开启方式：" class="headerlink" title="开启方式："></a>开启方式：</h3><p>需要配合 BOF 模块，比如使用 <code>sleep_mask</code> BOF，可以让 Beacon 在每次 sleep 时执行自我抹除。</p>
+<p>社区里也有不少自定义 Sleep Mask 的 BOF，如：</p>
+<ul>
+<li>Ekko（ETW Patch + APC 调度）；</li>
+<li>Schlock（挂起线程 + shellcode trampoline）；</li>
+<li>Sigrun 等。</li>
+</ul>
+<hr>
+<h2 id="如何绕过-Beacon-心跳特征检测"><a href="#如何绕过-Beacon-心跳特征检测" class="headerlink" title="如何绕过 Beacon 心跳特征检测"></a>如何绕过 Beacon 心跳特征检测</h2><p>因为 Beacon 的心跳行为很像“机器人”，所以流量检测系统（EDR&#x2F;NDR&#x2F;IDS）特别爱抓这类流量。</p>
+<p>以下是一些常见对抗方式：</p>
+<h3 id="1-使用-Malleable-C2-伪装流量"><a href="#1-使用-Malleable-C2-伪装流量" class="headerlink" title="1. 使用 Malleable C2 伪装流量"></a>1. 使用 Malleable C2 伪装流量</h3><ul>
+<li>修改 Beacon 的通信 URL（如 <code>/status-check</code> → <code>/cdn/api</code>）；</li>
+<li>修改 User-Agent（模拟 Chrome、Edge）；</li>
+<li>添加合法 Referer、Cookie；</li>
+<li>响应体伪装成 JSON&#x2F;XML 图片资源。</li>
+</ul>
+<h3 id="2-调整-sleep-jitter"><a href="#2-调整-sleep-jitter" class="headerlink" title="2. 调整 sleep + jitter"></a>2. 调整 sleep + jitter</h3><ul>
+<li>把 sleep 调长（如 300s），jitter 拉高（如 40%）；</li>
+<li>多个 Beacon 不要统一间隔上线，错开上线时间；</li>
+<li>随机插入长时间 sleep，模拟“挂机机器”。</li>
+</ul>
+<h3 id="3-分离通信链路"><a href="#3-分离通信链路" class="headerlink" title="3. 分离通信链路"></a>3. 分离通信链路</h3><ul>
+<li>利用 <strong>SMB Beacon</strong>、<strong>TCP Beacon</strong> 建立内网链路；</li>
+<li>让真正出网通信的 Beacon 更少、更稳；</li>
+<li>内部横向全部通过内网代理。</li>
+</ul>
+<h3 id="4-使用-DNS-通信"><a href="#4-使用-DNS-通信" class="headerlink" title="4. 使用 DNS 通信"></a>4. 使用 DNS 通信</h3><ul>
+<li>利用 DNS Query 发出命令请求；</li>
+<li>响应藏在 TXT 记录或 CNAME 返回中；</li>
+<li>流量更像正常 DNS 解析行为，但带宽较小。</li>
+</ul>
+<h3 id="5-动态加载-Beacon（反射注入）"><a href="#5-动态加载-Beacon（反射注入）" class="headerlink" title="5. 动态加载 Beacon（反射注入）"></a>5. 动态加载 Beacon（反射注入）</h3><ul>
+<li>Beacon 不驻留内存，而是使用 loader 每次注入后即销毁；</li>
+<li>可结合 sleep mask + reflect loader 实现极端隐蔽。</li>
+</ul>
+<hr>
+<h1 id="Browser-Pivot"><a href="#Browser-Pivot" class="headerlink" title="Browser Pivot"></a>Browser Pivot</h1><p><strong>Browser Pivot（浏览器代理或浏览器跳板）</strong> 是一种高级的后渗透技术，主要用于在已经控制的目标主机上<strong>劫持其浏览器会话</strong>，从而<strong>利用目标用户已登录的浏览器身份访问内部资源、Web应用或系统</strong>，而无需再次进行身份认证。帮助攻击者利用目标主机已有的“合法身份”进行更深层次的横向渗透或数据访问。</p>
+<hr>
+<h2 id="例子"><a href="#例子" class="headerlink" title="例子"></a>例子</h2><p>你渗透进了一台内网机器，这台机器的用户正在用浏览器访问公司内部的OA系统或开发平台（并已登录），你没有这个系统的账号密码。但通过 Browser Pivot，你可以<strong>借用他的浏览器身份</strong>，以他的权限去访问那些系统，就像你坐在他电脑前操作一样。</p>
+<hr>
+<h2 id="工作原理"><a href="#工作原理" class="headerlink" title="工作原理"></a>工作原理</h2><ol>
+<li><strong>建立 Beacon 会话</strong>：<ul>
+<li>攻击者通过 Cobalt Strike 控制目标主机，并植入了 Beacon（即后门）。</li>
+</ul>
+</li>
+<li><strong>启用 Browser Pivot</strong>：<ul>
+<li>在 Beacon 中执行 <code>browserpivot</code> 命令，Cobalt Strike 会注入一个 DLL 到目标机器的浏览器进程中（如 Chrome、Edge 或 IE）。</li>
+<li>这个 DLL 会<strong>拦截浏览器发出的 HTTP 请求</strong>，并将其代理转发到 Cobalt Strike。</li>
+</ul>
+</li>
+<li><strong>设置 SOCKS 代理</strong>：<ul>
+<li>攻击者可以在自己的机器上设置一个 SOCKS 代理，并通过这个代理访问目标浏览器“正在登录”的 Web 应用。</li>
+<li>所有请求都是从目标机器浏览器发出的，服务端会认为是“合法用户”的操作。</li>
+</ul>
+</li>
+<li><strong>访问目标内部系统</strong>：<ul>
+<li>攻击者现在可以在自己的浏览器或 Burp Suite 中设置 SOCKS 代理，访问原本无法访问的系统（如内网OA、内网Git、K8s Dashboard等）。</li>
+<li>所有请求都继承了目标用户当前的登录状态（如Cookie、Session等），不需要再次输入账号密码。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="与普通代理的区别"><a href="#与普通代理的区别" class="headerlink" title="与普通代理的区别"></a>与普通代理的区别</h2><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>普通代理</th>
+<th>Browser Pivot</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>是否继承登录状态</td>
+<td>❌ 不继承</td>
+<td>✅ 继承浏览器 Cookie、Session</td>
+</tr>
+<tr>
+<td>是否注入浏览器进程</td>
+<td>❌ 不注入</td>
+<td>✅ 注入浏览器进程</td>
+</tr>
+<tr>
+<td>是否可绕过认证</td>
+<td>❌ 需要账号密码</td>
+<td>✅ 可直接用目标已登录会话</td>
+</tr>
+<tr>
+<td>适用目标</td>
+<td>网络层面</td>
+<td>应用层&#x2F;会话层</td>
+</tr>
+</tbody></table>
+<hr>
+<h3 id="注意事项"><a href="#注意事项" class="headerlink" title="注意事项"></a>注意事项</h3><ul>
+<li><strong>浏览器必须是已登录状态</strong>：否则 Browser Pivot 没有意义。</li>
+<li><strong>有些浏览器启用了防注入机制</strong>（特别是新版 Chrome），可能会失败。</li>
+<li><strong>防御方可以通过监测浏览器行为和代理访问异常来识别此类行为</strong>。</li>
+</ul>
+<hr>
+<h1 id="Reflect-Loader"><a href="#Reflect-Loader" class="headerlink" title="Reflect Loader"></a>Reflect Loader</h1><h2 id="Reflective-Loader-是什么"><a href="#Reflective-Loader-是什么" class="headerlink" title="Reflective Loader 是什么"></a>Reflective Loader 是什么</h2><p><strong>Reflective Loader</strong>（反射加载器）是一种内存加载技术，其核心目的是：</p>
+<p><strong>在不依赖操作系统的标准加载机制（如 LoadLibrary）和不落地磁盘的情况下，在内存中手动加载并执行 DLL 或 Shellcode。</strong></p>
+<p>这种技术常用于：</p>
+<ul>
+<li><strong>无文件攻击（Fileless）</strong></li>
+<li><strong>恶意代码注入</strong></li>
+<li><strong>绕过安全软件检测（如 AV &#x2F; EDR）</strong></li>
+<li><strong>Cobalt Strike、Metasploit、BOF 等攻击链中的模块加载</strong></li>
+</ul>
+<hr>
+<h2 id="Reflective-Loader-的基本原理"><a href="#Reflective-Loader-的基本原理" class="headerlink" title="Reflective Loader 的基本原理"></a>Reflective Loader 的基本原理</h2><p>传统加载 DLL 的方式（如 <code>LoadLibrary()</code>）：</p>
+<ul>
+<li>会使用系统 API</li>
+<li>会写入磁盘缓存</li>
+<li>容易被安全软件检测</li>
+</ul>
+<p>而 Reflective Loader：</p>
+<ul>
+<li>自己实现一套完整的 DLL 加载流程</li>
+<li>从内存中加载 DLL（如从 Shellcode、远程注入、网络下载等）</li>
+<li>不依赖 <code>LoadLibrary</code>，也不生成磁盘文件</li>
+<li>可用于执行自定义模块、恶意插件、Beacon 等 payload</li>
+</ul>
+<p><strong>工作流程如下：</strong></p>
+<ol>
+<li><strong>从外部接收到一段 DLL 二进制数据</strong>（可能是加密的，也可能是 shellcode 包裹的）</li>
+<li><strong>Reflective Loader</strong> 在自身内部完成：<ul>
+<li>映射节区</li>
+<li>重定位地址</li>
+<li>修复导入表（Import Address Table）</li>
+<li>处理 TLS 回调</li>
+<li>执行 DLL 的入口函数（<code>DllMain</code>）</li>
+</ul>
+</li>
+<li>整个过程<strong>完全发生在内存中</strong></li>
+</ol>
+<hr>
+<h2 id="Reflective-Loader-常用于哪些地方？"><a href="#Reflective-Loader-常用于哪些地方？" class="headerlink" title="Reflective Loader 常用于哪些地方？"></a>Reflective Loader 常用于哪些地方？</h2><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>描述</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>红队工具</strong></td>
+<td>如 Cobalt Strike 使用 Reflective Loader 加载 Beacon（Payload）到远程进程</td>
+</tr>
+<tr>
+<td><strong>Metasploit</strong></td>
+<td>模块 <code>windows/meterpreter/reverse_https</code><br/> 中的 DLL 加载用的是反射技术</td>
+</tr>
+<tr>
+<td><strong>自定义后门 &#x2F; Dropper</strong></td>
+<td>利用反射加载器解密并运行内存中的 Payload</td>
+</tr>
+<tr>
+<td><strong>绕过安全检测</strong></td>
+<td>避免调用 LoadLibrary 或磁盘读写行为，减少被 AV&#x2F;EDR 检测的机会</td>
+</tr>
+<tr>
+<td><strong>免杀工具链构建</strong></td>
+<td>Loader + Reflective DLL + Beacon 组成一条完整免杀攻击链</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="和普通-DLL-加载的区别"><a href="#和普通-DLL-加载的区别" class="headerlink" title="和普通 DLL 加载的区别"></a>和普通 DLL 加载的区别</h2><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>LoadLibrary 加载</th>
+<th>Reflective Loader 加载</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>是否写入磁盘</td>
+<td>是（通常落地）</td>
+<td>否（完全在内存）</td>
+</tr>
+<tr>
+<td>是否使用系统 API</td>
+<td>是</td>
+<td>否（自定义代码）</td>
+</tr>
+<tr>
+<td>是否容易被 AV&#x2F;EDR 拦截</td>
+<td>容易</td>
+<td>更隐蔽</td>
+</tr>
+<tr>
+<td>加载过程</td>
+<td>系统帮你完成</td>
+<td>手动完成节区映射、重定位、导入修复</td>
+</tr>
+<tr>
+<td>支持 Shellcode 包装</td>
+<td>否</td>
+<td>是（常封装成 shellcode）</td>
+</tr>
+</tbody></table>
+<hr>
+<h1 id="BOF"><a href="#BOF" class="headerlink" title="BOF"></a>BOF</h1><h2 id="什么是-BOF（Beacon-Object-File）"><a href="#什么是-BOF（Beacon-Object-File）" class="headerlink" title="什么是 BOF（Beacon Object File）"></a>什么是 BOF（Beacon Object File）</h2><h3 id="简单定义"><a href="#简单定义" class="headerlink" title="简单定义"></a>简单定义</h3><p>BOF（Beacon Object File）是 <strong>Cobalt Strike 使用的一种轻量级内存模块</strong>，本质上是用 C 写的 <code>.o</code>（COFF 格式）目标文件，专门设计用于在 Beacon 内部运行的。</p>
+<p>可以理解为：<strong>Beacon 的“内存插件”</strong>。</p>
+<hr>
+<h3 id="为什么需要-BOF"><a href="#为什么需要-BOF" class="headerlink" title="为什么需要 BOF"></a>为什么需要 BOF</h3><p>在早期，Cobalt Strike 想在被控主机上执行一些高级操作（比如获取权限、内存扫描、hook 某模块等），需要：</p>
+<ul>
+<li>上传一个 EXE&#x2F;DLL；</li>
+<li>注入执行；</li>
+<li>或者用 PowerShell 调用。</li>
+</ul>
+<p>问题是这些操作都会：</p>
+<ul>
+<li>落地磁盘 → 容易被查杀；</li>
+<li>调用系统 API 太明显 → EDR 抓得飞起。</li>
+</ul>
+<p>于是引入 BOF 模型：</p>
+<ul>
+<li>用 C 编写轻量逻辑；</li>
+<li>编译成 <code>.o</code> 文件；</li>
+<li>在 Beacon 中由内置解释器运行；</li>
+<li>不需要落地、不调用 CreateProcess、甚至可避开常规 API。</li>
+</ul>
+<hr>
+<h3 id="BOF-的工作原理"><a href="#BOF-的工作原理" class="headerlink" title="BOF 的工作原理"></a>BOF 的工作原理</h3><ol>
+<li>在攻击机编写 BOF 脚本（C 语言）；</li>
+<li>用 MinGW 编译成 <code>.o</code> 文件（COFF 目标文件）；</li>
+<li>用 <code>bof</code> 命令加载 <code>.o</code> 文件进 Beacon；</li>
+<li>Beacon 在内存中调用内置解释器运行；</li>
+<li>操作完成，自动销毁，<strong>内存无残留</strong>。</li>
+</ol>
+<hr>
+<h2 id="Sleep-Mask：与-BOF-结合的隐蔽技术"><a href="#Sleep-Mask：与-BOF-结合的隐蔽技术" class="headerlink" title="Sleep Mask：与 BOF 结合的隐蔽技术"></a>Sleep Mask：与 BOF 结合的隐蔽技术</h2><h3 id="问题背景"><a href="#问题背景" class="headerlink" title="问题背景"></a>问题背景</h3><p>Beacon 在 sleep 过程中虽然暂停执行，但它的代码&#x2F;数据还在内存，可能被：</p>
+<ul>
+<li>杀软扫描；</li>
+<li>EDR 扫描异常 PE 签名；</li>
+<li>进程注入分析、代码段遍历等。</li>
+</ul>
+<p><strong>Sleep Mask</strong> 的目标就是让 Beacon 在“睡着”的时候彻底“藏起来”。</p>
+<hr>
+<h3 id="Sleep-Mask-原理概述"><a href="#Sleep-Mask-原理概述" class="headerlink" title="Sleep Mask 原理概述"></a>Sleep Mask 原理概述</h3><ol>
+<li>Beacon 准备进入 sleep；</li>
+<li>执行自我擦除逻辑（自我加密&#x2F;清空）；</li>
+<li>设置定时器或挂起；</li>
+<li>到时间后 → 自我恢复，继续工作。</li>
+</ol>
+<h3 id="技术点包括"><a href="#技术点包括" class="headerlink" title="技术点包括"></a>技术点包括</h3><ul>
+<li>加密 <code>.text</code> 段（代码段）；</li>
+<li>抹除函数符号、导入表；</li>
+<li>恢复时重新加载函数地址；</li>
+<li>可选使用 APC、Thread Hijack、ETW Patch 技术隐匿恢复动作。</li>
+</ul>
+<hr>
+<h3 id="BOF-如何实现-Sleep-Mask"><a href="#BOF-如何实现-Sleep-Mask" class="headerlink" title="BOF 如何实现 Sleep Mask"></a>BOF 如何实现 Sleep Mask</h3><p>Sleep Mask 逻辑通常是通过一个专用的 BOF 模块完成的</p>
+<figure class="highlight c"><table><tr><td class="code"><pre><span class="line"><span class="type">void</span> <span class="title function_">go</span><span class="params">(<span class="type">char</span> *args, <span class="type">int</span> len)</span> &#123;</span><br><span class="line">    mask_beacon();</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li><code>mask_beacon()</code> 是封装好的加密&#x2F;清除主模块代码逻辑；</li>
+<li>BOF 执行后，Beacon 的内存内容在 sleep 期间完全变形；</li>
+<li>到时间后自动解密，还原执行流程。</li>
+</ul>
+<p>有些 BOF 甚至还可以：</p>
+<ul>
+<li><strong>动态修改 Beacon 模块结构</strong>；</li>
+<li><strong>使用 syscalls 替代 WinAPI 进行内存操作</strong>；</li>
+<li><strong>完全避免调用敏感函数</strong>（CreateThread、VirtualAlloc 等）。</li>
+</ul>
+<hr>
+<h2 id="Sleep-Mask-BOF-的组合优势"><a href="#Sleep-Mask-BOF-的组合优势" class="headerlink" title="Sleep Mask + BOF 的组合优势"></a>Sleep Mask + BOF 的组合优势</h2><table>
+<thead>
+<tr>
+<th>项目</th>
+<th>传统方式</th>
+<th>BOF + Sleep Mask</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>隐蔽性</td>
+<td>一直驻留内存，容易被查</td>
+<td>清空内存内容，动态恢复</td>
+</tr>
+<tr>
+<td>落地风险</td>
+<td>可能写入磁盘</td>
+<td>完全内存中运行</td>
+</tr>
+<tr>
+<td>检测风险</td>
+<td>代码签名、模块名暴露</td>
+<td>自定义格式、无标准模块</td>
+</tr>
+<tr>
+<td>性能</td>
+<td>稳定但占资源</td>
+<td>轻量、只执行一次</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><ul>
+<li><strong>BOF</strong> 是 Beacon 内部运行的轻量模块插件，用 C 写，运行在内存中，无需落地；</li>
+<li><strong>Sleep Mask</strong> 是一种在 sleep 期间隐藏自身代码的技术，防止内存扫描被发现；</li>
+<li>两者结合，可以极大提升 Beacon 的隐蔽性，绕过杀软、EDR 检测；</li>
+<li>是红队中期持久化阶段非常关键的能力。</li>
+</ul>
+<h1 id="Malleable-C2"><a href="#Malleable-C2" class="headerlink" title="Malleable C2"></a><strong>Malleable C2</strong></h1><h2 id="Malleable-C2：流量伪装引擎"><a href="#Malleable-C2：流量伪装引擎" class="headerlink" title="Malleable C2：流量伪装引擎"></a>Malleable C2：流量伪装引擎</h2><p>Malleable C2 是 Cobalt Strike 中用于<strong>自定义 Beacon 和 Team Server 通信流量外观</strong>的配置机制。它的核心目标是：</p>
+<ul>
+<li>让 C2 流量“看起来像正常流量”；</li>
+<li>绕过 IDS&#x2F;WAF&#x2F;NDR 等基于流量模式的检测；</li>
+<li>伪装成合法网站（CDN、API、更新服务等）。</li>
+</ul>
+<hr>
+<h2 id="Malleable-C2-的工作原理"><a href="#Malleable-C2-的工作原理" class="headerlink" title="Malleable C2 的工作原理"></a>Malleable C2 的工作原理</h2><p>默认情况下，Beacon 的回连行为是固定的：</p>
+<ul>
+<li>请求路径：<code>/submit.php</code></li>
+<li>User-Agent：<code>CobaltStrike Beacon</code></li>
+<li>数据格式：Base64 编码后的任务包</li>
+</ul>
+<p>这太容易被规则匹配或流量学习算法检测了。</p>
+<p>于是引入 <strong>profile 文件</strong>，可以修改 Beacon 请求的：</p>
+<ul>
+<li>URI、路径结构；</li>
+<li>请求方法（GET&#x2F;POST）；</li>
+<li>头部字段（User-Agent、Cookie、Referer 等）；</li>
+<li>请求包体（格式、加密、混淆方式）；</li>
+<li>响应内容（伪装为图像、JSON、HTML 页面）；</li>
+<li>Beacon 的 metadata 加密、编码方式。</li>
+</ul>
+<hr>
+<h2 id="一个简单的-profile-示例"><a href="#一个简单的-profile-示例" class="headerlink" title="一个简单的 profile 示例"></a>一个简单的 profile 示例</h2><figure class="highlight c"><table><tr><td class="code"><pre><span class="line"><span class="built_in">set</span> useragent <span class="string">&quot;Mozilla/5.0 (Windows NT 10.0; Win64; x64)&quot;</span>;</span><br><span class="line"><span class="built_in">set</span> sleeptime <span class="string">&quot;30000&quot;</span>;  <span class="comment">// 30 秒</span></span><br><span class="line"></span><br><span class="line">http-get &#123;</span><br><span class="line">    <span class="built_in">set</span> uri <span class="string">&quot;/api/status&quot;</span>;</span><br><span class="line"></span><br><span class="line">    client &#123;</span><br><span class="line">        header <span class="string">&quot;Accept&quot;</span> <span class="string">&quot;application/json&quot;</span>;</span><br><span class="line">        metadata &#123;</span><br><span class="line">            netbios;</span><br><span class="line">            prepend <span class="string">&quot;ID=&quot;</span>;</span><br><span class="line">            base64;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    server &#123;</span><br><span class="line">        output &#123;</span><br><span class="line">            print;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这段配置的含义是：</p>
+<ul>
+<li>Beacon 回连使用路径 <code>/api/status</code></li>
+<li>使用的 User-Agent 是正常浏览器；</li>
+<li>将 metadata 结构体用 netbios 编码、base64，再加个 ID&#x3D; 前缀；</li>
+<li>Server 端的响应就直接打印出来（可自定义为图片等内容）。</li>
+</ul>
+<hr>
+<h2 id="Malleable-C2-的几个重要块"><a href="#Malleable-C2-的几个重要块" class="headerlink" title="Malleable C2 的几个重要块"></a>Malleable C2 的几个重要块</h2><h3 id="1-http-get-http-post"><a href="#1-http-get-http-post" class="headerlink" title="1. http-get &amp; http-post"></a>1. <code>http-get</code> &amp; <code>http-post</code></h3><p>定义 Beacon 上线请求的行为（GET 请求）和命令执行结果上传行为（POST 请求）。</p>
+<p>每个块中可配置：</p>
+<ul>
+<li><code>uri</code></li>
+<li><code>client &#123;&#125;</code>：请求头部 &amp; 编码方式</li>
+<li><code>server &#123;&#125;</code>：响应头部 &amp; 内容格式</li>
+</ul>
+<hr>
+<h3 id="2-metadata、id-output-post-ex"><a href="#2-metadata、id-output-post-ex" class="headerlink" title="2. metadata、id, output, post-ex"></a>2. <code>metadata</code>、<code>id</code>, <code>output</code>, <code>post-ex</code></h3><p>这些是 Beacon 与 Team Server 通信时的几种数据类型：</p>
+<table>
+<thead>
+<tr>
+<th>名称</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>metadata</code></td>
+<td>Beacon 上线时发给 C2 的信息（包括 hostname、user、IP、etc）</td>
+</tr>
+<tr>
+<td><code>id</code></td>
+<td>会话 ID，用来识别这个 Beacon</td>
+</tr>
+<tr>
+<td><code>output</code></td>
+<td>Beacon 执行命令后的返回数据</td>
+</tr>
+<tr>
+<td><code>post-ex</code></td>
+<td>Beacon 执行 post-ex 模块（像 shell、inject）后的数据</td>
+</tr>
+</tbody></table>
+<p>这些字段支持加密、编码、混淆（xor、netbios、base64、prepend、append 等）。</p>
+<hr>
+<h3 id="3-http-stager-块（仅-staged-payload-使用）"><a href="#3-http-stager-块（仅-staged-payload-使用）" class="headerlink" title="3. http-stager 块（仅 staged payload 使用）"></a>3. <code>http-stager</code> 块（仅 staged payload 使用）</h3><p>定义最初那个 stager 的 HTTP 下载行为（即 Beacon 拉取 stage 时使用的请求样式）：</p>
+<figure class="highlight c"><table><tr><td class="code"><pre><span class="line">http-stager &#123;</span><br><span class="line">    server &#123;</span><br><span class="line">        header <span class="string">&quot;Content-Type&quot;</span> <span class="string">&quot;application/octet-stream&quot;</span>;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    client &#123;</span><br><span class="line">        header <span class="string">&quot;User-Agent&quot;</span> <span class="string">&quot;Mozilla/5.0&quot;</span>;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="怎么创建并使用-Malleable-C2-配置？"><a href="#怎么创建并使用-Malleable-C2-配置？" class="headerlink" title="怎么创建并使用 Malleable C2 配置？"></a>怎么创建并使用 Malleable C2 配置？</h2><ol>
+<li>参考官方样例或 GitHub 上的 Malleable C2 Profile 集合；</li>
+<li>使用工具检查合法性：</li>
+</ol>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">c2lint my.profile</span><br></pre></td></tr></table></figure>
+
+<ol>
+<li>启动 teamserver 时加载 profile：</li>
+</ol>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">./teamserver &lt;IP&gt; &lt;pass&gt; my.profile</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="实战中常用的伪装思路"><a href="#实战中常用的伪装思路" class="headerlink" title="实战中常用的伪装思路"></a>实战中常用的伪装思路</h2><table>
+<thead>
+<tr>
+<th>模拟对象</th>
+<th>方法</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>CDN（Cloudflare）</td>
+<td>使用 <code>/cdn-cgi/l/email-protection</code><br/>、图片资源路径</td>
+</tr>
+<tr>
+<td>GitHub API</td>
+<td>使用 <code>https://api.github.com/repos/...</code><br/> 结构</td>
+</tr>
+<tr>
+<td>Microsoft Update</td>
+<td>模拟 <code>User-Agent: Windows-Update-Agent</code><br/>，路径带 <code>.cab</code></td>
+</tr>
+<tr>
+<td>Google Fonts</td>
+<td>路径 <code>/fonts?family=Roboto</code><br/>，响应为 JSON 或 CSS</td>
+</tr>
+<tr>
+<td>JSON API</td>
+<td>请求头 Accept 为 <code>application/json</code><br/>，response 返回 JSON 结构包住 output</td>
+</tr>
+<tr>
+<td>图片资源</td>
+<td>响应用 <code>Content-Type: image/jpeg</code><br/>，output 藏在图片尾部或 fake jpg header 后</td>
+</tr>
+</tbody></table>
+<hr>
+<h1 id="Profile"><a href="#Profile" class="headerlink" title="Profile"></a>Profile</h1><p>在 Cobalt Strike 中，<strong>profile 指的就是 Malleable C2 的配置文件</strong>，它是用一种特殊的 DSL（类似 C 的语法）写的文本文件，<strong>用来定义 Beacon 和 Team Server 通信时的“外壳伪装”</strong>。</p>
+<p>通俗一点说：</p>
+<p>Beacon 的流量要伪装成“正常的网络请求”，profile 就是这张“伪装成什么样”的说明书。</p>
+<p>比如：</p>
+<ul>
+<li>要把流量伪装成访问 GitHub 的样子？</li>
+<li>要让流量头部看起来像浏览器请求？</li>
+<li>要让传输内容长得像图片？ 这些都可以在 profile 里配置。</li>
+</ul>
+<hr>
+<h2 id="Profile-的作用总结起来就是两点："><a href="#Profile-的作用总结起来就是两点：" class="headerlink" title="Profile 的作用总结起来就是两点："></a>Profile 的作用总结起来就是两点：</h2><ol>
+<li><strong>定义 Beacon 与 Team Server 的通信格式（数据结构 + 包样式）</strong>；</li>
+<li><strong>控制 Beacon 的行为参数（上线频率、jitter 抖动、user-agent、请求路径等）</strong>。</li>
+</ol>
+<hr>
+<h2 id="Profile-通常包含哪些内容"><a href="#Profile-通常包含哪些内容" class="headerlink" title="Profile 通常包含哪些内容"></a>Profile 通常包含哪些内容</h2><figure class="highlight c"><table><tr><td class="code"><pre><span class="line"><span class="built_in">set</span> sleeptime <span class="string">&quot;60000&quot;</span>;             <span class="comment">// Beacon 心跳时间（毫秒）</span></span><br><span class="line"><span class="built_in">set</span> jitter <span class="string">&quot;25&quot;</span>;                   <span class="comment">// 抖动百分比</span></span><br><span class="line"><span class="built_in">set</span> useragent <span class="string">&quot;Mozilla/5.0&quot;</span>;       <span class="comment">// Beacon 使用的 User-Agent</span></span><br><span class="line"><span class="built_in">set</span> dns_idle <span class="string">&quot;8.8.8.8&quot;</span>;            <span class="comment">// DNS Beacon 模式用的 Idle 值</span></span><br><span class="line"><span class="built_in">set</span> maxdns <span class="string">&quot;255&quot;</span>;                  <span class="comment">// 最大 DNS 包长度</span></span><br><span class="line"></span><br><span class="line">http-get &#123;</span><br><span class="line">    <span class="built_in">set</span> uri <span class="string">&quot;/cdn/api/status&quot;</span>;     <span class="comment">// Beacon GET 请求的路径</span></span><br><span class="line"></span><br><span class="line">    client &#123;</span><br><span class="line">        header <span class="string">&quot;Accept&quot;</span> <span class="string">&quot;application/json&quot;</span>;</span><br><span class="line">        metadata &#123;</span><br><span class="line">            base64;</span><br><span class="line">            prepend <span class="string">&quot;ID=&quot;</span>;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line"></span><br><span class="line">    server &#123;</span><br><span class="line">        output &#123;</span><br><span class="line">            base64;</span><br><span class="line">        &#125;</span><br><span class="line">    &#125;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<p>这就是一个完整的通信逻辑描述文件。</p>
+<hr>
+<h2 id="Profile-的生命周期是这样的："><a href="#Profile-的生命周期是这样的：" class="headerlink" title="Profile 的生命周期是这样的："></a>Profile 的生命周期是这样的：</h2><ol>
+<li><strong>创建：</strong> 自己手写或用工具生成 profile 文件，后缀不限（通常 <code>.profile</code>）；</li>
+<li><strong>加载：</strong> 启动 Cobalt Strike 的 TeamServer 时传入这个文件；</li>
+</ol>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">./teamserver &lt;IP&gt; &lt;password&gt; profile.profile</span><br></pre></td></tr></table></figure>
+
+<ol start="3">
+<li><strong>作用：</strong> 所有 Beacon（包括生成的 payload）都会使用该 profile 定义的行为来回连；</li>
+<li><strong>修改：</strong> 必须重启 TeamServer 才能生效新的 profile。</li>
+</ol>
+<hr>
+<h2 id="Profile-和-Beacon-是什么关系"><a href="#Profile-和-Beacon-是什么关系" class="headerlink" title="Profile 和 Beacon 是什么关系"></a>Profile 和 Beacon 是什么关系</h2><p>可以这样理解：</p>
+<table>
+<thead>
+<tr>
+<th>模块</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>Beacon</td>
+<td>负责执行命令 + 回连 Team Server</td>
+</tr>
+<tr>
+<td>Profile</td>
+<td>规定 Beacon 的“通信外壳”和行为习惯</td>
+</tr>
+<tr>
+<td>Team Server</td>
+<td>接收 Beacon 的流量，并解析 profile 中规定的结构</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="可以配置哪些行为"><a href="#可以配置哪些行为" class="headerlink" title="可以配置哪些行为"></a>可以配置哪些行为</h2><table>
+<thead>
+<tr>
+<th>行为类型</th>
+<th>示例</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>回连频率</td>
+<td><code>set sleeptime</code>、<code>set jitter</code></td>
+</tr>
+<tr>
+<td>请求样式</td>
+<td><code>http-get &#123;&#125;</code>、<code>http-post &#123;&#125;</code></td>
+</tr>
+<tr>
+<td>请求内容</td>
+<td><code>metadata</code>、<code>id</code>、<code>post-ex</code></td>
+</tr>
+<tr>
+<td>数据编码</td>
+<td><code>base64</code>、<code>netbios</code>、<code>mask</code></td>
+</tr>
+<tr>
+<td>流量伪装</td>
+<td><code>header</code>、<code>uri</code>、<code>server output</code></td>
+</tr>
+<tr>
+<td>DNS 通信</td>
+<td><code>dns-beacon</code>、<code>maxdns</code>、<code>dns_idle</code></td>
+</tr>
+<tr>
+<td>兼容场景</td>
+<td><code>os_arch</code>、<code>http-stager</code> 块</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="实战中怎么用-profile"><a href="#实战中怎么用-profile" class="headerlink" title="实战中怎么用 profile"></a>实战中怎么用 profile</h2><ul>
+<li>配合上线场景：伪装成公司常访问的 API（CDN、云盘等）；</li>
+<li>绕过 IDS&#x2F;EDR：改掉 Beacon 的默认路径、头部、包结构；</li>
+<li>针对性生成 payload：一个 profile 一个 Beacon 风格。</li>
+</ul>
+]]></content>
+      <tags>
+        <tag>C2</tag>
+        <tag>安全</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Redis</title>
+    <url>/2025/04/03/Redis/</url>
+    <content><![CDATA[<h1 id="I-O多路复用是什么"><a href="#I-O多路复用是什么" class="headerlink" title="I&#x2F;O多路复用是什么"></a>I&#x2F;O多路复用是什么</h1><p><strong>I&#x2F;O 多路复用</strong>（I&#x2F;O Multiplexing）是一种使得单个线程（或进程）能够同时监控多个 I&#x2F;O 操作的技术，它可以让程序有效地处理多个 I&#x2F;O 操作（如读取文件或网络连接）而无需为每个操作创建一个独立的线程或进程。I&#x2F;O 多路复用的核心思想是在一个线程内，能够同时处理多个 I&#x2F;O 操作，避免了频繁的线程切换和进程创建，从而提高了系统的性能和资源利用率。</p>
+<p>在没有 I&#x2F;O 多路复用机制的情况下，当程序需要等待多个 I&#x2F;O 操作时（比如等待多个网络连接的读取操作），通常会采取阻塞方式，直到每个操作完成。这样每个操作都会阻塞当前线程，导致系统资源浪费。I&#x2F;O 多路复用通过在一个线程内同时监听多个 I&#x2F;O 操作，使得线程在等待 I&#x2F;O 操作完成时可以继续做其他工作。</p>
+<h2 id="I-O-多路复用的工作原理"><a href="#I-O-多路复用的工作原理" class="headerlink" title="I&#x2F;O 多路复用的工作原理"></a>I&#x2F;O 多路复用的工作原理</h2><p>I&#x2F;O 多路复用的基本原理是，程序通过一个系统调用（如 <code>select</code>、<code>poll</code>、<code>epoll</code> 等）将多个文件描述符注册到内核中，内核在这些文件描述符上的 I&#x2F;O 事件发生时通知程序。程序通过查询这些文件描述符的状态，确定哪些可以进行读写操作。</p>
+<p>具体流程如下：</p>
+<ol>
+<li><strong>注册文件描述符</strong>：应用程序通过某种方式（如 <code>select</code>、<code>poll</code>、<code>epoll</code> 等）将需要监控的文件描述符注册到操作系统内核。</li>
+<li><strong>等待 I&#x2F;O 事件</strong>：应用程序进入等待状态，等待内核通知哪些文件描述符有事件（例如数据可读、可写或异常）。</li>
+<li><strong>事件发生时处理 I&#x2F;O 操作</strong>：一旦某个文件描述符有 I&#x2F;O 事件发生，内核会通知程序，程序可以读取或写入数据，或处理相应的 I&#x2F;O 操作。</li>
+<li><strong>重复等待</strong>：程序处理完事件后，继续进入等待状态，直到下一个事件发生。</li>
+</ol>
+<h2 id="为什么需要-I-O-多路复用？"><a href="#为什么需要-I-O-多路复用？" class="headerlink" title="为什么需要 I&#x2F;O 多路复用？"></a>为什么需要 I&#x2F;O 多路复用？</h2><p>I&#x2F;O 多路复用的目标是提高并发性和系统性能，尤其是在以下几种场景下：</p>
+<ol>
+<li><strong>高并发</strong>：当需要同时处理大量 I&#x2F;O 操作（比如网络请求、文件操作等）时，创建一个线程或进程来处理每个请求可能会消耗大量系统资源，而 I&#x2F;O 多路复用通过共享一个线程来处理多个 I&#x2F;O 操作，大大减少了资源消耗。</li>
+<li><strong>减少阻塞</strong>：传统的 I&#x2F;O 操作通常是阻塞的，程序会一直等待 I&#x2F;O 操作完成，直到可以读取或写入数据。而 I&#x2F;O 多路复用使得程序在等待 I&#x2F;O 操作时不会被阻塞，可以同时处理多个 I&#x2F;O 请求，提高效率。</li>
+<li><strong>资源节省</strong>：通过单线程处理多个 I&#x2F;O 操作，可以避免过多的线程或进程创建，从而节省系统资源，减少上下文切换的开销。</li>
+</ol>
+<h2 id="I-O-多路复用的典型技术"><a href="#I-O-多路复用的典型技术" class="headerlink" title="I&#x2F;O 多路复用的典型技术"></a>I&#x2F;O 多路复用的典型技术</h2><p>I&#x2F;O 多路复用的实现方式依赖于操作系统提供的系统调用，常见的实现技术包括：</p>
+<ol>
+<li><code>**select**</code>：<ul>
+<li>最早期的 I&#x2F;O 多路复用机制，允许程序监控多个文件描述符，判断哪些文件描述符已经准备好进行读写操作。</li>
+<li><code>select</code> 通过传递文件描述符集合来实现，每次调用都会检查所有文件描述符的状态，因此在大量文件描述符的情况下性能会变差。</li>
+<li>受限于文件描述符数量（通常是 1024）。</li>
+</ul>
+</li>
+<li><code>**poll**</code>：<ul>
+<li>类似于 <code>select</code>，但解决了 <code>select</code> 的一些局限，比如文件描述符数量的限制。</li>
+<li><code>poll</code> 使用一个数组来存储文件描述符和事件，能处理任意数量的文件描述符，但性能仍然随着文件描述符数量的增加而降低。</li>
+</ul>
+</li>
+<li><code>**epoll**</code>：<ul>
+<li>Linux 下提供的高效 I&#x2F;O 多路复用机制，特别适用于处理大量并发连接。</li>
+<li><code>epoll</code> 使用事件驱动的方式，只关注那些发生事件的文件描述符，避免了不必要的检查和遍历，从而提高了性能。</li>
+<li>支持边缘触发（ET）和水平触发（LT）模式，能够更精确地控制 I&#x2F;O 事件。</li>
+<li><code>epoll</code> 有两种工作模式：</li>
+</ul>
+<ol>
+<li><strong>水平触发（Level Triggered，LT）</strong>：<ul>
+<li>当某个文件描述符有数据可读时，<code>epoll</code> 会通知用户程序。如果程序没有读走所有数据，它会继续通知直到数据被完全读取。</li>
+</ul>
+</li>
+<li><strong>边缘触发（Edge Triggered，ET）</strong>：<ul>
+<li>当某个文件描述符的状态从不可读变为可读时，<code>epoll</code> 会通知用户程序。只有当文件描述符的状态发生变化时，<code>epoll</code> 才会触发通知。相比于 LT 模式，ET 模式需要程序更精细地处理数据。</li>
+</ul>
+</li>
+</ol>
+</li>
+<li><code>**kqueue**</code>（在 BSD 系统中）：<ul>
+<li>类似于 <code>epoll</code>，是 BSD 系统（如 macOS）中的 I&#x2F;O 多路复用机制。<code>kqueue</code> 能高效地监控多个 I&#x2F;O 事件，支持灵活的事件处理机制。</li>
+</ul>
+</li>
+</ol>
+<h2 id="I-O-多路复用的优缺点"><a href="#I-O-多路复用的优缺点" class="headerlink" title="I&#x2F;O 多路复用的优缺点"></a>I&#x2F;O 多路复用的优缺点</h2><h3 id="优点"><a href="#优点" class="headerlink" title="优点"></a>优点</h3><ol>
+<li><strong>高并发处理</strong>：在单线程或少量线程中处理多个 I&#x2F;O 操作，避免了线程和进程切换的开销，能处理更多的并发请求。</li>
+<li><strong>节省资源</strong>：减少了线程和进程的创建和销毁，避免了过多的资源消耗。</li>
+<li><strong>避免阻塞</strong>：通过非阻塞的 I&#x2F;O 操作，程序能够在等待数据时继续执行其他任务，提升系统响应能力。</li>
+</ol>
+<h3 id="缺点"><a href="#缺点" class="headerlink" title="缺点"></a>缺点</h3><ol>
+<li><strong>实现复杂</strong>：相比传统的阻塞式 I&#x2F;O，I&#x2F;O 多路复用需要处理更多的复杂性，如事件的管理和响应。</li>
+<li><strong>适用场景有限</strong>：虽然 I&#x2F;O 多路复用适用于高并发场景，但它对于一些不需要处理大量并发的简单应用来说可能过于复杂。</li>
+<li><strong>系统依赖性</strong>：不同操作系统提供的 I&#x2F;O 多路复用机制（如 <code>select</code>、<code>poll</code>、<code>epoll</code>）有差异，可能需要考虑跨平台的适配问题。</li>
+</ol>
+<hr>
+<h1 id="redis都有哪些数据结构"><a href="#redis都有哪些数据结构" class="headerlink" title="redis都有哪些数据结构"></a>redis都有哪些数据结构</h1><p>Redis 提供了多种数据结构，旨在帮助开发者高效地存储和操作不同类型的数据。每种数据结构在 Redis 中都扮演着不同的角色，针对特定的应用场景进行优化。以下是 Redis 支持的主要数据结构：</p>
+<h2 id="1-String（字符串）"><a href="#1-String（字符串）" class="headerlink" title="1. String（字符串）"></a>1. String（字符串）</h2><ul>
+<li><strong>描述</strong>：Redis 中的基本数据类型，可以存储任何类型的字符串，包括数字、文本、二进制数据等。</li>
+<li><strong>特点</strong>：<ul>
+<li>每个键值对中的值都是一个字符串，最大长度为 512 MB。</li>
+<li>支持常见的字符串操作，如设置、获取、拼接、截取等。</li>
+<li>用途广泛，适合存储缓存、会话信息、计数器等。</li>
+</ul>
+</li>
+<li><strong>常见操作</strong>：<ul>
+<li><code>SET key value</code>：设置键值对。</li>
+<li><code>GET key</code>：获取键对应的值。</li>
+<li><code>INCR key</code>：对值进行加 1 操作（计数器）。</li>
+</ul>
+</li>
+</ul>
+<h2 id="2-List（列表）"><a href="#2-List（列表）" class="headerlink" title="2. List（列表）"></a>2. List（列表）</h2><ul>
+<li><strong>描述</strong>：一个简单的字符串列表，按照插入顺序排序，可以在列表的两端进行推送、弹出等操作。</li>
+<li><strong>特点</strong>：<ul>
+<li>支持从左侧或右侧操作（即双端队列）。</li>
+<li>适合队列、栈等数据模型。</li>
+<li>支持基于索引的访问和范围查询。</li>
+</ul>
+</li>
+<li><strong>常见操作</strong>：<ul>
+<li><code>LPUSH key value</code>：将值推入列表的左端。</li>
+<li><code>RPUSH key value</code>：将值推入列表的右端。</li>
+<li><code>LPOP key</code>：从左侧弹出一个元素。</li>
+<li><code>RPOP key</code>：从右侧弹出一个元素。</li>
+<li><code>LRANGE key start stop</code>：返回列表指定范围内的元素。</li>
+</ul>
+</li>
+</ul>
+<h2 id="3-Set（集合）"><a href="#3-Set（集合）" class="headerlink" title="3. Set（集合）"></a>3. Set（集合）</h2><ul>
+<li><strong>描述</strong>：无序的字符串集合，集合中的元素是唯一的，没有重复值。</li>
+<li><strong>特点</strong>：<ul>
+<li>支持集合操作，如交集、并集和差集等。</li>
+<li>适合用来存储不允许重复的数据。</li>
+<li>常用于标签、集合运算等。</li>
+</ul>
+</li>
+<li><strong>常见操作</strong>：<ul>
+<li><code>SADD key member</code>：将成员添加到集合中。</li>
+<li><code>SREM key member</code>：移除集合中的成员。</li>
+<li><code>SMEMBERS key</code>：返回集合中的所有成员。</li>
+<li><code>SINTER key1 key2</code>：返回两个集合的交集。</li>
+</ul>
+</li>
+</ul>
+<h2 id="4-Sorted-Set（有序集合）"><a href="#4-Sorted-Set（有序集合）" class="headerlink" title="4. Sorted Set（有序集合）"></a>4. Sorted Set（有序集合）</h2><ul>
+<li><strong>描述</strong>：与 Set 类似，但每个元素都有一个分数（score），根据分数进行排序。</li>
+<li><strong>特点</strong>：<ul>
+<li>元素按照分数从小到大排序，且分数相同的元素会按照插入顺序排序。</li>
+<li>支持范围查询，可以根据分数范围进行查询，适用于排行榜、延迟队列等场景。</li>
+</ul>
+</li>
+<li><strong>常见操作</strong>：<ul>
+<li><code>ZADD key score member</code>：将元素及其分数添加到有序集合中。</li>
+<li><code>ZRANGE key start stop</code>：返回指定区间内的元素。</li>
+<li><code>ZREM key member</code>：移除有序集合中的成员。</li>
+<li><code>ZRANK key member</code>：返回成员的排名。</li>
+</ul>
+</li>
+</ul>
+<h2 id="5-Hash（哈希）"><a href="#5-Hash（哈希）" class="headerlink" title="5. Hash（哈希）"></a>5. Hash（哈希）</h2><ul>
+<li><strong>描述</strong>：键值对集合，适合存储对象类型的数据。哈希可以通过字段（field）来存储多个值。</li>
+<li><strong>特点</strong>：<ul>
+<li>每个哈希可以包含多个字段和相应的值，类似于一个对象或记录。</li>
+<li>适合存储多个关联字段的数据（例如，用户信息）。</li>
+</ul>
+</li>
+<li><strong>常见操作</strong>：<ul>
+<li><code>HSET key field value</code>：为哈希添加一个字段和值。</li>
+<li><code>HGET key field</code>：获取哈希中指定字段的值。</li>
+<li><code>HGETALL key</code>：获取哈希中的所有字段和值。</li>
+<li><code>HDEL key field</code>：删除哈希中的指定字段。</li>
+</ul>
+</li>
+</ul>
+<h2 id="6-Bitmaps（位图）"><a href="#6-Bitmaps（位图）" class="headerlink" title="6. Bitmaps（位图）"></a>6. Bitmaps（位图）</h2><ul>
+<li><strong>描述</strong>：位图是对字符串类型的一种扩展，可以将字符串的每一位作为一个独立的 bit（0 或 1）来使用。</li>
+<li><strong>特点</strong>：<ul>
+<li>适用于高效的布尔值集合操作，比如用户是否参与活动。</li>
+<li>可以在不需要额外内存的情况下存储大量的布尔值。</li>
+</ul>
+</li>
+<li><strong>常见操作</strong>：<ul>
+<li><code>SETBIT key offset value</code>：在指定位置设置位值。</li>
+<li><code>GETBIT key offset</code>：获取指定位置的位值。</li>
+<li><code>BITCOUNT key</code>：统计指定键中为 1 的位数。</li>
+</ul>
+</li>
+</ul>
+<h2 id="9-Streams（流）"><a href="#9-Streams（流）" class="headerlink" title="9. Streams（流）"></a>9. Streams（流）</h2><ul>
+<li><strong>描述</strong>：Redis Streams 是一个类似消息队列的数据结构，用于存储和处理消息流。</li>
+<li><strong>特点</strong>：<ul>
+<li>支持按时间戳存储消息，并支持消费者组（Consumer Groups）。</li>
+<li>可用于构建类似 Kafka 的消息队列系统。</li>
+</ul>
+</li>
+<li><strong>常见操作</strong>：<ul>
+<li><code>XADD key * field value</code>：向流中添加一条消息。</li>
+<li><code>XREAD</code>：从流中读取消息。</li>
+<li><code>XGROUP CREATE</code>：创建消费者组。</li>
+</ul>
+</li>
+</ul>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><p>Redis 提供了非常丰富和高效的数据结构，适用于各种不同的使用场景。根据不同的需求，你可以选择合适的数据结构来存储和处理数据：</p>
+<ul>
+<li><strong>String</strong>：适用于缓存、计数器等简单数据。</li>
+<li><strong>List</strong>：适合队列、栈等线性数据。</li>
+<li><strong>Set</strong>：用于去重、集合操作等。</li>
+<li><strong>Sorted Set</strong>：适合排行榜、延迟队列等按顺序操作的数据。</li>
+<li><strong>Hash</strong>：适合存储对象或多字段的数据。</li>
+<li><strong>Bitmaps</strong>：适用于位级操作。</li>
+<li><strong>Streams</strong>：适用于消息队列等场景。</li>
+</ul>
+<p>这些数据结构可以帮助开发者根据实际需求进行灵活的设计与优化，使得 Redis 成为一个非常强大的数据存储系统。</p>
+<table>
+<thead>
+<tr>
+<th>类型</th>
+<th>特点</th>
+<th>场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>String</td>
+<td>快速简单，最大512MB</td>
+<td>缓存单值、计数器、Token</td>
+</tr>
+<tr>
+<td>Hash</td>
+<td>结构体对象存储</td>
+<td>用户信息、配置项</td>
+</tr>
+<tr>
+<td>List</td>
+<td>有序双向链表</td>
+<td>消息队列、日志</td>
+</tr>
+<tr>
+<td>Set</td>
+<td>无序唯一集合</td>
+<td>去重、标签、集合运算</td>
+</tr>
+<tr>
+<td>ZSet</td>
+<td>有序集合，带权重</td>
+<td>排行榜、延迟队列</td>
+</tr>
+</tbody></table>
+<hr>
+<h1 id="Redis-是单线程的，为什么还能这么快？单线程不是慢吗？"><a href="#Redis-是单线程的，为什么还能这么快？单线程不是慢吗？" class="headerlink" title="Redis 是单线程的，为什么还能这么快？单线程不是慢吗？"></a>Redis 是单线程的，为什么还能这么快？单线程不是慢吗？</h1><ol>
+<li>所有数据在内存中，访问没有磁盘 IO</li>
+<li>单线程模型，避免上下文切换和加锁开销</li>
+<li>基于 epoll 的 IO 多路复用，处理高并发连接</li>
+<li>简单高效的数据结构（C实现 + ziplist&#x2F;intset优化）</li>
+</ol>
+<hr>
+<h1 id="项目中用过哪些-Redis-的数据结构？为什么不用关系型数据库"><a href="#项目中用过哪些-Redis-的数据结构？为什么不用关系型数据库" class="headerlink" title="项目中用过哪些 Redis 的数据结构？为什么不用关系型数据库"></a>项目中用过哪些 Redis 的数据结构？为什么不用关系型数据库</h1><ul>
+<li>用过 String（缓存用户Token）、Hash（缓存用户详情）、List（异步消息）、ZSet（排行榜）</li>
+<li>Redis 内存操作速度远高于关系型数据库，用于热点数据加速</li>
+<li>没有事务性强要求场景时，Redis 几毫秒的响应速度是数据库无法比的</li>
+</ul>
+<hr>
+<h1 id="Redis的过期机制和内存淘汰策略"><a href="#Redis的过期机制和内存淘汰策略" class="headerlink" title="Redis的过期机制和内存淘汰策略"></a>Redis的过期机制和内存淘汰策略</h1><h2 id="一、Key-的过期机制（TTL）"><a href="#一、Key-的过期机制（TTL）" class="headerlink" title="一、Key 的过期机制（TTL）"></a>一、Key 的过期机制（TTL）</h2><p>Redis 支持设置每个 key 的<strong>过期时间</strong>，到时间后自动删除。</p>
+<h3 id="🔹设置过期时间的命令"><a href="#🔹设置过期时间的命令" class="headerlink" title="🔹设置过期时间的命令"></a>🔹设置过期时间的命令</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">SET user:1 <span class="string">&quot;Tom&quot;</span> EX 60     <span class="comment"># 设置 60 秒后过期</span></span><br><span class="line">EXPIRE user:1 60           <span class="comment"># 单独设置过期时间</span></span><br><span class="line">TTL user:1                 <span class="comment"># 查询剩余时间</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="Redis-什么时候删除这些-key？"><a href="#Redis-什么时候删除这些-key？" class="headerlink" title="Redis 什么时候删除这些 key？"></a>Redis 什么时候删除这些 key？</h3><p>重点：<strong>不是精确时钟删除，而是惰性 + 定期删除机制组合</strong></p>
+<h3 id="删除策略详解"><a href="#删除策略详解" class="headerlink" title="删除策略详解"></a>删除策略详解</h3><ol>
+<li><strong>惰性删除（Lazy）</strong><ul>
+<li>客户端访问 key 时，Redis 发现已过期，就立刻删掉（并返回 nil）</li>
+</ul>
+</li>
+<li><strong>定期删除（主动扫描）</strong><ul>
+<li>每 100ms，Redis 会<strong>随机抽样一批带过期时间的 key</strong>，删除过期的</li>
+<li>如果发现超 25% 的 key 都过期了，就<strong>加快扫描节奏</strong></li>
+</ul>
+</li>
+</ol>
+<h3 id="为什么不逐个精准定时删除？"><a href="#为什么不逐个精准定时删除？" class="headerlink" title="为什么不逐个精准定时删除？"></a>为什么不逐个精准定时删除？</h3><p>会造成高 CPU 负载，扫描量大，Redis 单线程承受不住</p>
+<hr>
+<h2 id="二、内存淘汰机制（Memory-Eviction）"><a href="#二、内存淘汰机制（Memory-Eviction）" class="headerlink" title="二、内存淘汰机制（Memory Eviction）"></a>二、内存淘汰机制（Memory Eviction）</h2><p>当 Redis 达到设置的最大内存（<code>maxmemory</code>），又需要写入新 key 时，会触发<strong>淘汰机制</strong>。</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 配置示例</span></span><br><span class="line">maxmemory 512mb</span><br><span class="line">maxmemory-policy allkeys-lru</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h3 id="常见的内存淘汰策略"><a href="#常见的内存淘汰策略" class="headerlink" title="常见的内存淘汰策略"></a>常见的内存淘汰策略</h3><table>
+<thead>
+<tr>
+<th>策略名</th>
+<th>含义</th>
+<th>推荐使用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>noeviction</td>
+<td>默认值，不淘汰，写入时报错</td>
+<td>不建议线上使用</td>
+</tr>
+<tr>
+<td>volatile-lru</td>
+<td>从<strong>有过期时间的 key 中</strong>淘汰最少使用的</td>
+<td>有效控制热数据内存</td>
+</tr>
+<tr>
+<td>allkeys-lru</td>
+<td>所有 key 中淘汰最少使用的</td>
+<td>推荐：缓存场景</td>
+</tr>
+<tr>
+<td>volatile-ttl</td>
+<td>从有过期时间的 key 中淘汰<strong>快过期的</strong></td>
+<td>延迟淘汰控制</td>
+</tr>
+<tr>
+<td>allkeys-random</td>
+<td>所有 key 中随机淘汰</td>
+<td>一般用作测试</td>
+</tr>
+<tr>
+<td>volatile-random</td>
+<td>有过期时间的 key 中随机淘汰</td>
+<td>比较少用</td>
+</tr>
+</tbody></table>
+<hr>
+<h3 id="Redis-设置了-maxmemory-和淘汰策略，为什么还是-OOM-了？"><a href="#Redis-设置了-maxmemory-和淘汰策略，为什么还是-OOM-了？" class="headerlink" title="Redis 设置了 maxmemory 和淘汰策略，为什么还是 OOM 了？"></a>Redis 设置了 maxmemory 和淘汰策略，为什么还是 OOM 了？</h3><ol>
+<li>设置的是 <code>noeviction</code>，没有开启淘汰功能</li>
+<li>有大量 key 没设置 TTL，策略是 <code>volatile-*</code>，Redis 找不到 key 可以淘汰</li>
+<li>有大 key（bigkey），触发淘汰时清理不及时</li>
+<li>写入速度远超淘汰速度（高并发写入 + 单线程处理）</li>
+</ol>
+<hr>
+<h2 id="实战建议"><a href="#实战建议" class="headerlink" title="实战建议"></a>实战建议</h2><table>
+<thead>
+<tr>
+<th>建议</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>key 必须设置 TTL</td>
+<td>防止缓存雪崩，内存泄露</td>
+</tr>
+<tr>
+<td>建议使用 allkeys-lru</td>
+<td>更加自动化地控制内存</td>
+</tr>
+<tr>
+<td>避免存大 key（如超大 hash、list）</td>
+<td>淘汰慢、容易卡主线程</td>
+</tr>
+<tr>
+<td>监控 Redis 内存使用</td>
+<td>用 <code>INFO MEMORY</code><br/> 或 <code>redis_exporter</code><br/> 上 Prometheus 监控</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="自问自答"><a href="#自问自答" class="headerlink" title="自问自答"></a>自问自答</h2><ol>
+<li>Redis 的过期 key 是怎么删除的？是实时的吗？ 不是实时的， 惰性+定期</li>
+<li>Redis 的惰性删除和定期删除分别是什么？ </li>
+<li>Redis 的内存淘汰策略有哪些？哪个最常用？</li>
+<li>如果写入大量 key，但内存没满 Redis 就挂了，可能的原因有哪些？ 有设置最大内存， 或者是过多内存碎片，  或者是有写入大key，导致CPU撑不住卡主进程了…..</li>
+<li>项目中怎么控制 Redis 占用内存？  设置<code>**maxmemory**</code><strong>、内存回收策略、过期时间控制</strong></li>
+</ol>
+<hr>
+<h1 id="缓存穿透、缓存击穿、缓存雪崩"><a href="#缓存穿透、缓存击穿、缓存雪崩" class="headerlink" title="缓存穿透、缓存击穿、缓存雪崩"></a>缓存穿透、缓存击穿、缓存雪崩</h1><h2 id="缓存穿透"><a href="#缓存穿透" class="headerlink" title="缓存穿透"></a>缓存穿透</h2><h3 id="问题描述"><a href="#问题描述" class="headerlink" title="问题描述"></a>问题描述</h3><p>客户端频繁请求<strong>数据库中根本不存在的 key</strong>，由于缓存 miss，Redis 不命中，所有请求都落到底层数据库，造成数据库压力激增，甚至打挂。</p>
+<h3 id="典型场景"><a href="#典型场景" class="headerlink" title="典型场景"></a>典型场景</h3><p>请求不存在的用户 ID，比如 <code>GET user:-1</code>，Redis miss，数据库 miss，不断重复请求。</p>
+<h3 id="解决方案"><a href="#解决方案" class="headerlink" title="解决方案"></a>解决方案</h3><ol>
+<li><strong>缓存空值</strong><ul>
+<li>对于数据库返回 null 的数据，也缓存一个标记，例如：<code>user:-1 =&gt; &quot;null&quot;</code>，设置较短过期时间。</li>
+</ul>
+</li>
+<li><strong>布隆过滤器（BloomFilter）</strong><ul>
+<li>在 Redis 之前做一层布隆过滤器，用于快速判断 key 是否存在，避免无意义请求。</li>
+</ul>
+</li>
+<li><strong>接口参数校验</strong><ul>
+<li>提前在 API 层做参数合法性校验，比如 ID 必须 &gt; 0。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="缓存击穿"><a href="#缓存击穿" class="headerlink" title="缓存击穿"></a>缓存击穿</h2><h3 id="问题描述-1"><a href="#问题描述-1" class="headerlink" title="问题描述"></a>问题描述</h3><p>一个<strong>热点 key 恰好过期</strong>，大量并发请求在这个瞬间同时打到数据库，造成数据库压力瞬时激增。</p>
+<h3 id="典型场景-1"><a href="#典型场景-1" class="headerlink" title="典型场景"></a>典型场景</h3><p>某商品详情是热点，每秒几千请求，刚好 <code>GET product:123</code> 在某个时刻过期，所有请求瞬间穿透。</p>
+<h3 id="解决方案-1"><a href="#解决方案-1" class="headerlink" title="解决方案"></a>解决方案</h3><ol>
+<li><strong>互斥锁（分布式锁）</strong><ul>
+<li>第一个请求获取锁去加载数据，其它请求等待或短时间返回旧数据。</li>
+</ul>
+</li>
+<li><strong>永不过期 + 异步刷新</strong><ul>
+<li>不设置过期时间，而是定时刷新缓存（通过定时任务或消息队列）。</li>
+</ul>
+</li>
+<li><strong>合理设置过期时间 + 提前异步预热</strong><ul>
+<li>对热点 key 使用更长过期时间，或者在过期前预热。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="缓存雪崩"><a href="#缓存雪崩" class="headerlink" title="缓存雪崩"></a>缓存雪崩</h2><h3 id="问题描述-2"><a href="#问题描述-2" class="headerlink" title="问题描述"></a>问题描述</h3><p>大量 key 在同一时刻同时失效，所有请求同时穿透，数据库被压垮。</p>
+<h3 id="典型场景-2"><a href="#典型场景-2" class="headerlink" title="典型场景"></a>典型场景</h3><p>比如你缓存设置了 1 小时统一过期，某一时刻恰好全部失效，系统瞬间崩溃。</p>
+<h3 id="解决方案-2"><a href="#解决方案-2" class="headerlink" title="解决方案"></a>解决方案</h3><ol>
+<li><strong>过期时间加随机扰动</strong><ul>
+<li>给每个 key 设置不同的过期时间，避免同一时间集中失效。例如 <code>EX 600 + random(0~60)</code>。</li>
+</ul>
+</li>
+<li><strong>热点数据永不过期 + 后台异步刷新</strong></li>
+<li><strong>降级保护机制</strong><ul>
+<li>当发现缓存异常，短路请求，直接返回默认值、静态页等。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="自问自答-1"><a href="#自问自答-1" class="headerlink" title="自问自答"></a>自问自答</h2><ol>
+<li>什么是缓存穿透？怎么解决？</li>
+<li>缓存击穿和穿透的区别是什么？</li>
+<li>怎么解决 Redis 大量 key 同时过期的雪崩问题？</li>
+<li>使用 Redis 做缓存时，是否建议 key 永久有效？</li>
+<li>有没有用过布隆过滤器？什么原理？ 是个概率性的数据结构， 用多个不同的哈希算法， 拿到的哈希值如果对应的都是1， 就是1， 只要有一个是0， 就是0， 因此存的数据量越大， 越容易误报</li>
+</ol>
+<h1 id="Redis的持久化机制（RDB-与-AOF）"><a href="#Redis的持久化机制（RDB-与-AOF）" class="headerlink" title="Redis的持久化机制（RDB 与 AOF）"></a>Redis的持久化机制（RDB 与 AOF）</h1><p>Redis 虽然是内存数据库，但为了防止数据丢失，提供了两种持久化机制：<strong>RDB</strong>（快照）和 <strong>AOF</strong>（追加日志）。</p>
+<hr>
+<h2 id="持久化方式概览"><a href="#持久化方式概览" class="headerlink" title="持久化方式概览"></a>持久化方式概览</h2><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>全称</th>
+<th>特点</th>
+<th>数据安全性</th>
+<th>文件大小</th>
+<th>启动速度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>RDB</td>
+<td>Redis DataBase snapshot</td>
+<td>定期快照</td>
+<td>较低</td>
+<td>小</td>
+<td>快</td>
+</tr>
+<tr>
+<td>AOF</td>
+<td>Append Only File</td>
+<td>日志追加</td>
+<td>高</td>
+<td>大</td>
+<td>慢（需重放）</td>
+</tr>
+<tr>
+<td>混合模式</td>
+<td>RDB + AOF</td>
+<td>Redis 4.0 后默认</td>
+<td>综合优点</td>
+<td>可控</td>
+<td>快速恢复</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="RDB（快照方式）"><a href="#RDB（快照方式）" class="headerlink" title="RDB（快照方式）"></a>RDB（快照方式）</h2><h3 id="原理"><a href="#原理" class="headerlink" title="原理"></a>原理</h3><ul>
+<li>Redis 在一定时间间隔内将内存数据写入一个压缩过的二进制文件（<code>.rdb</code>）</li>
+<li>触发方式：<ul>
+<li>自动：配置 <code>save 900 1</code>（900 秒内至少 1 个 key 变动）</li>
+<li>手动：执行 <code>SAVE</code> 或 <code>BGSAVE</code> 命令</li>
+</ul>
+</li>
+</ul>
+<h3 id="优点-1"><a href="#优点-1" class="headerlink" title="优点"></a>优点</h3><ul>
+<li>启动恢复速度快</li>
+<li>文件体积小，适合备份、灾备迁移</li>
+</ul>
+<h3 id="缺点-1"><a href="#缺点-1" class="headerlink" title="缺点"></a>缺点</h3><ul>
+<li>可能丢失最近一次修改（最后一次快照之后的数据）</li>
+<li>BGSAVE 会 fork 子进程，写入大文件时会造成系统负载升高</li>
+</ul>
+<hr>
+<h2 id="AOF（日志方式）"><a href="#AOF（日志方式）" class="headerlink" title="AOF（日志方式）"></a>AOF（日志方式）</h2><h3 id="原理-1"><a href="#原理-1" class="headerlink" title="原理"></a>原理</h3><ul>
+<li>所有写命令会追加到 <code>.aof</code> 文件中，Redis 重启时按顺序“重放命令”恢复数据</li>
+<li>三种刷盘策略（由 <code>appendfsync</code> 决定）：<ul>
+<li>always：每次写都刷盘（最安全，最慢）</li>
+<li>everysec：每秒刷一次（默认）</li>
+<li>no：由操作系统决定（可能丢失几秒）</li>
+</ul>
+</li>
+</ul>
+<h3 id="优点-2"><a href="#优点-2" class="headerlink" title="优点"></a>优点</h3><ul>
+<li>数据恢复更完整（最多丢失 1 秒）</li>
+<li>适合对数据完整性要求高的场景</li>
+</ul>
+<h3 id="缺点-2"><a href="#缺点-2" class="headerlink" title="缺点"></a>缺点</h3><ul>
+<li>文件越来越大，需要定期重写（BGREWRITEAOF）</li>
+<li>启动时需要重放日志，恢复速度比 RDB 慢</li>
+</ul>
+<hr>
+<h2 id="混合持久化（Redis-4-0-）"><a href="#混合持久化（Redis-4-0-）" class="headerlink" title="混合持久化（Redis 4.0+）"></a>混合持久化（Redis 4.0+）</h2><h3 id="原理-2"><a href="#原理-2" class="headerlink" title="原理"></a>原理</h3><ul>
+<li>在 AOF 重写时，先将当前快照（RDB 格式）写入 AOF，然后再追加后续写命令</li>
+<li>好处：<ul>
+<li>启动速度几乎和 RDB 一样快</li>
+<li>数据完整性和 AOF 一样高</li>
+</ul>
+</li>
+</ul>
+<h3 id="开启方式"><a href="#开启方式" class="headerlink" title="开启方式"></a>开启方式</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">aof-use-rdb-preamble <span class="built_in">yes</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="配置示例"><a href="#配置示例" class="headerlink" title="配置示例"></a>配置示例</h2><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">save 900 1</span><br><span class="line">appendonly <span class="built_in">yes</span></span><br><span class="line">appendfsync everysec</span><br><span class="line"><span class="built_in">dir</span> /var/lib/redis</span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="自问自答-2"><a href="#自问自答-2" class="headerlink" title="自问自答"></a>自问自答</h2><ol>
+<li>Redis 持久化有几种方式？分别适用于什么场景？</li>
+<li>如果 Redis 宕机了，数据怎么恢复？会不会丢数据？</li>
+<li>RDB 和 AOF 哪个恢复速度更快？哪个更安全？</li>
+<li>怎么避免 RDB&#x2F;AOF 持久化造成主线程卡顿？</li>
+</ol>
+<hr>
+<h2 id="实战建议-1"><a href="#实战建议-1" class="headerlink" title="实战建议"></a>实战建议</h2><table>
+<thead>
+<tr>
+<th>建议</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>开启 AOF + everysec 模式</td>
+<td>实现安全性和性能的平衡</td>
+</tr>
+<tr>
+<td>配置 save 900 1 等参数</td>
+<td>保留定期快照，便于快速恢复</td>
+</tr>
+<tr>
+<td>设置 aof-use-rdb-preamble yes</td>
+<td>兼顾快速启动与完整性</td>
+</tr>
+<tr>
+<td>使用 Redis 主从 + 持久化</td>
+<td>容灾架构更稳妥</td>
+</tr>
+</tbody></table>
+<h1 id="Redis-是怎么做-AOF-重写的？会不会影响性能？"><a href="#Redis-是怎么做-AOF-重写的？会不会影响性能？" class="headerlink" title="Redis 是怎么做 AOF 重写的？会不会影响性能？"></a>Redis 是怎么做 AOF 重写的？会不会影响性能？</h1><p>在 Redis 中，<strong>AOF（Append Only File）重写</strong> 是一种用于优化磁盘 I&#x2F;O 和 AOF 文件大小的机制。AOF 重写是 Redis 在持久化数据时采取的一种方式，目的是定期生成新的 AOF 文件，从而减少旧文件的大小并提高性能。</p>
+<h3 id="什么是-AOF-重写？"><a href="#什么是-AOF-重写？" class="headerlink" title="什么是 AOF 重写？"></a><strong>什么是 AOF 重写？</strong></h3><p>Redis 使用 AOF 持久化机制时，会将所有的写命令记录到 AOF 文件中，这样即使 Redis 重启，数据也不会丢失。随着时间的推移，AOF 文件可能会变得非常大，尤其是在有大量写操作的场景下。为了避免 AOF 文件过大，Redis 提供了 <strong>AOF 重写（AOF rewrite）</strong> 机制。</p>
+<p>AOF 重写是指 Redis 会创建一个新的 AOF 文件，只记录 <strong>当前数据库状态</strong> 的最简写操作，从而生成一个更小的文件。这个过程不会影响 Redis 正常的写操作，但会在后台进行，保证 Redis 在重写期间继续为客户端提供服务。</p>
+<h3 id="AOF-重写的工作原理"><a href="#AOF-重写的工作原理" class="headerlink" title="AOF 重写的工作原理"></a><strong>AOF 重写的工作原理</strong></h3><ol>
+<li><strong>触发条件</strong>：<ul>
+<li>AOF 重写通常由 Redis 根据 AOF 文件的大小和重写条件来触发。重写会在 Redis 认为 AOF 文件过大时自动进行，或者也可以通过手动调用 <code>BGREWRITEAOF</code> 命令来触发。</li>
+</ul>
+</li>
+<li><strong>重写过程</strong>：<ul>
+<li>在 AOF 重写过程中，Redis 会创建一个新的 AOF 文件，并在后台 <strong>重新生成</strong> AOF 文件中的命令。这个过程会记录所有当前数据库状态所需的最小写命令。</li>
+<li>比如，如果数据库中某个键的值已经改变了多次，Redis 会将该键的最终状态写入新的 AOF 文件，而不再记录每次对该键的修改操作。</li>
+</ul>
+</li>
+<li><strong>AOF 重写的工作步骤</strong>：<ul>
+<li><strong>步骤 1</strong>：Redis 在后台创建一个新的 AOF 文件，并逐个遍历数据库中的所有键，生成一组命令来重新构建当前数据库的状态。</li>
+<li><strong>步骤 2</strong>：当新的 AOF 文件创建完成后，Redis 会将当前 AOF 文件中的所有命令写入新文件中，确保新文件包含了数据库的最新状态。</li>
+<li><strong>步骤 3</strong>：一旦新的 AOF 文件完成，Redis 会关闭原来的 AOF 文件，将新的文件替换为当前 AOF 文件。</li>
+</ul>
+</li>
+<li><strong>后台执行</strong>：<ul>
+<li>在进行 AOF 重写时，Redis 会使用 <strong>后台（fork）</strong> 的方式创建一个子进程来执行重写操作。这个子进程会处理数据的写入，不会影响主进程的运行。</li>
+<li>这种方式允许 Redis 在 AOF 重写期间继续服务客户端请求，保证了系统的高可用性。</li>
+</ul>
+</li>
+</ol>
+<h3 id="AOF-重写是否会影响性能？"><a href="#AOF-重写是否会影响性能？" class="headerlink" title="AOF 重写是否会影响性能？"></a><strong>AOF 重写是否会影响性能？</strong></h3><p>AOF 重写的过程是通过 <strong>fork 子进程</strong> 来执行的，因此在执行重写时，Redis 主进程可以继续服务客户端请求。但是，AOF 重写操作还是会对性能产生一定的影响，具体体现在以下几个方面：</p>
+<ol>
+<li><strong>内存占用</strong>：<ul>
+<li>在 AOF 重写期间，Redis 会在后台创建一个子进程，并复制主进程的内存空间。这意味着在重写过程中，Redis 的内存使用量会增加，因为它需要同时保持原有的 AOF 文件和新的 AOF 文件内容。对于内存较小的机器，这可能会导致内存使用高峰。</li>
+</ul>
+</li>
+<li><strong>CPU 占用</strong>：<ul>
+<li>AOF 重写需要扫描整个数据库，并生成新的 AOF 文件，这会消耗一定的 CPU 资源。虽然 Redis 会在后台执行这一过程，但在大数据量的情况下，CPU 的负载可能会暂时增高。</li>
+</ul>
+</li>
+<li><strong>磁盘 I&#x2F;O</strong>：<ul>
+<li>AOF 重写会生成新的 AOF 文件，并将新的命令写入磁盘。这会增加磁盘的写入压力。如果磁盘性能较差或 I&#x2F;O 较高的场景下，可能会对性能产生影响。</li>
+</ul>
+</li>
+<li><strong>阻塞时间</strong>：<ul>
+<li>在某些情况下，尤其是当 AOF 文件非常大，或者当系统资源有限时，AOF 重写可能会导致 Redis 的响应时间略微增加，特别是在频繁触发 AOF 重写时。</li>
+</ul>
+</li>
+<li><strong>fork 子进程的影响</strong>：<ul>
+<li>Redis 使用 <code>fork</code> 创建子进程来执行 AOF 重写操作，而 <code>fork</code> 操作会占用一定的系统资源。虽然子进程会在重写完成后被销毁，但在 <code>fork</code> 的过程中，操作系统需要进行内存页的复制，这会消耗 CPU 和内存资源。</li>
+</ul>
+</li>
+</ol>
+<h3 id="如何减少-AOF-重写对性能的影响？"><a href="#如何减少-AOF-重写对性能的影响？" class="headerlink" title="如何减少 AOF 重写对性能的影响？"></a><strong>如何减少 AOF 重写对性能的影响？</strong></h3><p>为了减少 AOF 重写对性能的影响，可以采取以下策略：</p>
+<ol>
+<li>**合理设置 <strong><code>**auto-aof-rewrite-percentage**</code></strong> 和 **<code>**auto-aof-rewrite-min-size**</code>：<ul>
+<li><code>auto-aof-rewrite-percentage</code>：控制触发 AOF 重写的条件。它设置为相对于上次重写时 AOF 文件的大小增长百分比。</li>
+<li><code>auto-aof-rewrite-min-size</code>：控制 AOF 文件的最小大小，只有当文件大小超过这个值时，才会考虑执行 AOF 重写。</li>
+</ul>
+</li>
+</ol>
+<p>通过合理配置这两个参数，可以控制 AOF 重写的触发频率，从而避免频繁的 AOF 重写操作，减小对性能的影响。</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">auto-aof-rewrite-percentage 100  <span class="comment"># AOF 文件大小增加 100% 后进行重写</span></span><br><span class="line">auto-aof-rewrite-min-size 64mb  <span class="comment"># AOF 文件超过 64MB 时才进行重写</span></span><br></pre></td></tr></table></figure>
+
+<ol start="2">
+<li><strong>使用合适的硬件资源</strong>：<ul>
+<li>如果可能，考虑为 Redis 配置更高性能的硬件，尤其是 I&#x2F;O 密集型的存储设备（如 SSD）。更强大的硬件可以显著减少 AOF 重写过程中对磁盘 I&#x2F;O 的压力。</li>
+</ul>
+</li>
+<li><strong>优化 <strong><code>**maxmemory-policy**</code></strong> 配置</strong>：<ul>
+<li>在 Redis 中设置合理的内存回收策略，确保内存不会过度占用，避免因内存不足导致频繁的 AOF 重写。</li>
+</ul>
+</li>
+<li><strong>分批写入数据</strong>：<ul>
+<li>对于大量写入数据的场景，考虑将数据写入 Redis 时分批处理，减少瞬时写入压力，降低 AOF 文件增长速度。</li>
+</ul>
+</li>
+<li><strong>使用 AOF + RDB 混合持久化（RDB + AOF）</strong>：<ul>
+<li>Redis 还支持同时使用 <strong>RDB（快照）</strong> 和 <strong>AOF</strong> 两种持久化方式，您可以通过配置 Redis 在一定间隔内执行快照（RDB）保存，并在更高频次下执行 AOF 持久化。这可以减小对性能的影响，同时保证数据持久化。</li>
+</ul>
+</li>
+</ol>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 启用 RDB 和 AOF 混合持久化</span></span><br><span class="line">appendonly <span class="built_in">yes</span></span><br><span class="line">appendfsync everysec</span><br><span class="line">save 900 1</span><br><span class="line">save 300 10</span><br><span class="line">save 60 10000</span><br></pre></td></tr></table></figure>
+
+<h3 id="总结-1"><a href="#总结-1" class="headerlink" title="总结"></a><strong>总结</strong></h3><p>AOF 重写是 Redis 为了优化 AOF 文件大小、提高性能和减少磁盘 I&#x2F;O 而采取的机制。虽然 AOF 重写通常是在后台进行，不会阻塞主进程，但它确实会消耗一些额外的 CPU 和内存资源，尤其是在大数据量的情况下。因此，合理的配置和硬件资源的支持是确保 AOF 重写不会对性能产生过大影响的关键。</p>
+<hr>
+<h1 id="怎么避免-RDB-AOF-持久化造成主线程卡顿"><a href="#怎么避免-RDB-AOF-持久化造成主线程卡顿" class="headerlink" title="怎么避免 RDB&#x2F;AOF 持久化造成主线程卡顿"></a>怎么避免 RDB&#x2F;AOF 持久化造成主线程卡顿</h1><p>在 Redis 中，RDB 和 AOF 是两种常见的持久化机制，它们会定期将内存中的数据持久化到磁盘，确保数据的持久性。但这两个过程可能会造成一定的 <strong>主线程卡顿</strong>，特别是在大规模数据存储或高并发环境下，RDB 和 AOF 持久化过程会占用大量的 CPU 和 I&#x2F;O 资源，从而影响 Redis 的响应速度和性能。</p>
+<p>下面是一些避免 RDB&#x2F;AOF 持久化造成主线程卡顿的方法</p>
+<h2 id="1-使用-RDB-快照时采用后台保存（save-和-BGSAVE）"><a href="#1-使用-RDB-快照时采用后台保存（save-和-BGSAVE）" class="headerlink" title="1. 使用 RDB 快照时采用后台保存（save 和 BGSAVE）"></a>1. 使用 RDB 快照时采用后台保存（<code>save</code> 和 <code>BGSAVE</code>）</h2><ul>
+<li>默认情况下，Redis 使用 <code>**BGSAVE**</code>（背景保存）来执行 RDB 快照操作。<code>BGSAVE</code> 会在后台创建一个子进程，主线程继续服务客户端请求。</li>
+<li><code>BGSAVE</code> 操作不会阻塞主线程，它通过 <code>fork()</code> 子进程的方式执行，因此可以在不影响 Redis 主线程的情况下进行持久化。</li>
+<li><strong>注意</strong>：如果在 Redis 配置中使用 <code>**save**</code> 命令来设置 RDB 快照（比如每隔 900 秒进行一次快照），如果在执行 RDB 时不使用 <code>BGSAVE</code>，则会导致 <strong>阻塞</strong>，因为此时 Redis 主线程会被锁定，直到 RDB 快照完成。</li>
+</ul>
+<p><strong>配置</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># RDB 快照配置示例</span></span><br><span class="line">save 900 1</span><br><span class="line">save 300 10</span><br><span class="line">save 60 10000</span><br></pre></td></tr></table></figure>
+
+<p>在 <code>BGSAVE</code> 执行期间，主线程仍然可以继续处理客户端请求。</p>
+<h2 id="2-合理配置-AOF-持久化"><a href="#2-合理配置-AOF-持久化" class="headerlink" title="2. 合理配置 AOF 持久化"></a>2. 合理配置 AOF 持久化</h2><p>AOF（Append Only File）将 Redis 执行的所有写操作追加到 AOF 文件中，以保证持久化数据。AOF 的同步策略（<code>appendfsync</code>）决定了每次写入操作是如何同步到磁盘的：</p>
+<ul>
+<li><code>**appendfsync always**</code>：每次写操作都会同步到磁盘，性能最低，通常不推荐。</li>
+<li><code>**appendfsync everysec**</code>：每秒同步一次。是推荐的设置，性能和数据持久性之间有一个良好的平衡。</li>
+<li><code>**appendfsync no**</code>：让操作系统决定何时将数据同步到磁盘，性能最高，但在系统崩溃时可能会丢失一些数据。</li>
+</ul>
+<p><strong>推荐设置</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">appendonly <span class="built_in">yes</span></span><br><span class="line">appendfsync everysec  <span class="comment"># 每秒钟一次同步到磁盘</span></span><br></pre></td></tr></table></figure>
+
+<p><code>appendfsync everysec</code> 可以最大限度减少 AOF 持久化对主线程的影响，同时确保数据的持久性。</p>
+<h2 id="3-启用-AOF-重写机制"><a href="#3-启用-AOF-重写机制" class="headerlink" title="3. 启用 AOF 重写机制"></a>3. 启用 AOF 重写机制</h2><p>AOF 文件随着时间的推移会变得越来越大，这样会导致持久化操作变得非常慢，影响 Redis 的性能。为了防止 AOF 文件过大导致性能下降，Redis 提供了 <strong>AOF 重写（AOF rewrite）</strong> 机制。</p>
+<p><strong>AOF 重写</strong> 的过程是将当前数据库的状态重新写入 AOF 文件，并且会创建一个新的 AOF 文件，而不记录所有历史操作。AOF 重写是通过一个后台进程来完成的，因此它不会影响主线程。</p>
+<p><strong>AOF 重写的触发条件</strong>：</p>
+<ul>
+<li>当 AOF 文件的大小超出一定比例时（默认是 100%）。</li>
+<li>可以通过配置 <code>auto-aof-rewrite-percentage</code> 和 <code>auto-aof-rewrite-min-size</code> 来控制触发条件。</li>
+</ul>
+<p><strong>配置示例</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line"><span class="comment"># 自动触发 AOF 重写的条件</span></span><br><span class="line">auto-aof-rewrite-percentage 100  <span class="comment"># 当 AOF 文件大小增加 100% 时触发重写</span></span><br><span class="line">auto-aof-rewrite-min-size 64mb  <span class="comment"># 当 AOF 文件超过 64MB 时触发重写</span></span><br></pre></td></tr></table></figure>
+
+<p>通过合理配置 AOF 重写，Redis 可以自动优化 AOF 文件的大小，避免在文件过大的时候影响性能。</p>
+<h2 id="4-优化磁盘-I-O-性能"><a href="#4-优化磁盘-I-O-性能" class="headerlink" title="4. 优化磁盘 I&#x2F;O 性能"></a>4. 优化磁盘 I&#x2F;O 性能</h2><p>RDB 和 AOF 持久化操作都涉及到磁盘 I&#x2F;O，因此磁盘性能对于持久化的效率至关重要。使用更快的存储设备（例如 SSD）可以显著提高持久化过程的性能，减少对主线程的影响。</p>
+<p><strong>优化建议</strong>：</p>
+<ul>
+<li>使用 <strong>SSD</strong>（固态硬盘）而不是传统的 <strong>HDD</strong>（机械硬盘），以减少磁盘 I&#x2F;O 的延迟。</li>
+<li>将 Redis 的数据目录和 AOF 文件存储在不同的物理磁盘上，避免磁盘 I&#x2F;O 竞争。</li>
+<li>通过 <code>**vm.dirty_background_bytes**</code> 等内核参数来调整操作系统的 I&#x2F;O 调度策略，优化磁盘写入效率。</li>
+</ul>
+<h2 id="5-定期执行-MEMORY-PURGE-清理内存碎片"><a href="#5-定期执行-MEMORY-PURGE-清理内存碎片" class="headerlink" title="5. 定期执行 MEMORY PURGE 清理内存碎片"></a>5. 定期执行 <code>MEMORY PURGE</code> 清理内存碎片</h2><p>当 Redis 进行大量写入和持久化时，内存碎片可能导致内存管理效率低下，从而影响 Redis 性能。使用 <code>**MEMORY PURGE**</code> 命令可以清理 Redis 中的内存碎片，释放无用内存，从而减少内存使用和提高性能。</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">MEMORY PURGE  <span class="comment"># 清理内存碎片</span></span><br></pre></td></tr></table></figure>
+
+<p>定期执行内存清理操作有助于减轻持久化时的内存负担，从而改善 Redis 性能。</p>
+<h2 id="6-使用混合持久化（RDB-AOF）"><a href="#6-使用混合持久化（RDB-AOF）" class="headerlink" title="6. 使用混合持久化（RDB + AOF）"></a>6. 使用混合持久化（RDB + AOF）</h2><p>Redis 支持混合持久化，即同时使用 <strong>RDB 和 AOF</strong>。通过这种方式，Redis 可以在启动时使用 RDB 快照来恢复数据，而在写操作时使用 AOF 进行持久化。混合持久化通过减少 AOF 文件的大小来优化性能，并提高 Redis 的启动速度。</p>
+<p><strong>启用混合持久化</strong>：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">appendonly <span class="built_in">yes</span></span><br><span class="line">appendfsync everysec</span><br><span class="line">rdbchecksum <span class="built_in">yes</span></span><br></pre></td></tr></table></figure>
+
+<p>混合持久化的优势是，在不牺牲持久化的可靠性和完整性的情况下，通过 AOF 重写和 RDB 快照的结合来减少磁盘 I&#x2F;O 的压力。</p>
+<h2 id="总结-2"><a href="#总结-2" class="headerlink" title="总结"></a>总结</h2><p>为了避免 RDB 和 AOF 持久化造成 Redis 主线程卡顿，可以采取以下措施：</p>
+<ol>
+<li>**使用 **<code>**BGSAVE**</code> 执行 RDB 快照，避免阻塞主线程。</li>
+<li><strong>合理配置 AOF 持久化策略</strong>（推荐 <code>appendfsync everysec</code>）来平衡性能和持久性。</li>
+<li><strong>利用 AOF 重写</strong> 来减少 AOF 文件的大小，避免性能下降。</li>
+<li><strong>优化磁盘 I&#x2F;O 性能</strong>，使用 SSD 或更快的存储设备来提高持久化效率。</li>
+<li><strong>定期清理内存碎片</strong>，通过 <code>MEMORY PURGE</code> 来减轻内存管理负担。</li>
+<li><strong>使用混合持久化</strong>（RDB + AOF）来提升性能，减少 AOF 文件大小。</li>
+</ol>
+<p>通过这些方法，您可以减少 RDB 和 AOF 持久化对 Redis 性能的影响，提高系统的响应速度和可用性。</p>
+<h1 id="Redis是怎么存储有序集合zset的"><a href="#Redis是怎么存储有序集合zset的" class="headerlink" title="Redis是怎么存储有序集合zset的"></a>Redis是怎么存储有序集合zset的</h1><p><strong>Redis 的 ZSet（有序集合）</strong>，它在 Redis 中扮演着非常核心的角色，特别适用于排行榜、延时队列、权重调度等场景。</p>
+<hr>
+<h2 id="什么是-ZSet（Sorted-Set）"><a href="#什么是-ZSet（Sorted-Set）" class="headerlink" title="什么是 ZSet（Sorted Set）"></a>什么是 ZSet（Sorted Set）</h2><p>ZSet 是 Redis 中的一种数据结构，全称是 <strong>有序集合（Sorted Set）</strong>。</p>
+<p>它的特点是：</p>
+<ul>
+<li>每个元素都是唯一的（像 Set）</li>
+<li>每个元素关联一个 <strong>score</strong>（分数），按 score 排序（像优先队列）</li>
+<li>可以按分数范围、高低排名、高低分数做高效查询</li>
+</ul>
+<p>你可以把 ZSet 看成是：<br><strong>带权重的 Set + 排序链表 + 快速查找结构</strong></p>
+<hr>
+<h2 id="数据结构实现：跳表-哈希表"><a href="#数据结构实现：跳表-哈希表" class="headerlink" title="数据结构实现：跳表 + 哈希表"></a>数据结构实现：跳表 + 哈希表</h2><h3 id="ZSet-底层用了两个结构："><a href="#ZSet-底层用了两个结构：" class="headerlink" title="ZSet 底层用了两个结构："></a>ZSet 底层用了两个结构：</h3><ol>
+<li><strong>哈希表（dict）</strong><ul>
+<li>快速定位元素对应的 score</li>
+<li>key 是元素，value 是 score</li>
+</ul>
+</li>
+<li><strong>跳表（skiplist）</strong><ul>
+<li>维持元素按 score 升序排列</li>
+<li>用于支持范围查找、区间遍历、按排名查询等</li>
+</ul>
+</li>
+</ol>
+<p>为什么用跳表而不是红黑树？</p>
+<ul>
+<li>插入&#x2F;删除逻辑简单</li>
+<li>查询效率也接近 O(log n)</li>
+<li>Redis 追求极致性能，跳表是工程中性能 + 简洁度权衡最佳的结构</li>
+</ul>
+<hr>
+<h2 id="核心操作和性能"><a href="#核心操作和性能" class="headerlink" title="核心操作和性能"></a>核心操作和性能</h2><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>命令</th>
+<th>时间复杂度</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>添加&#x2F;更新元素</td>
+<td><code>ZADD key score member</code></td>
+<td>O(log n)</td>
+<td>插入或更新元素，跳表中调整顺序</td>
+</tr>
+<tr>
+<td>删除元素</td>
+<td><code>ZREM key member</code></td>
+<td>O(log n)</td>
+<td>删除成员，同时从 dict 和 skiplist 删除</td>
+</tr>
+<tr>
+<td>查询成员的分数</td>
+<td><code>ZSCORE key member</code></td>
+<td>O(1)</td>
+<td>直接从 dict 中查</td>
+</tr>
+<tr>
+<td>按排名查成员</td>
+<td><code>ZRANGE key start stop</code></td>
+<td>O(log n + m)</td>
+<td>从跳表中按顺序取元素</td>
+</tr>
+<tr>
+<td>查某个成员的排名</td>
+<td><code>ZRANK key member</code></td>
+<td>O(log n)</td>
+<td>在跳表中向下查找节点，统计 rank</td>
+</tr>
+<tr>
+<td>范围删除</td>
+<td><code>ZREMRANGEBYSCORE key min max</code></td>
+<td>O(log n + m)</td>
+<td>从跳表中范围定位，然后批量删除</td>
+</tr>
+<tr>
+<td>分数区间查找</td>
+<td><code>ZRANGEBYSCORE key min max</code></td>
+<td>O(log n + m)</td>
+<td>先用跳表查 min，再往后遍历</td>
+</tr>
+<tr>
+<td>获取总数</td>
+<td><code>ZCARD key</code></td>
+<td>O(1)</td>
+<td>获取元素个数</td>
+</tr>
+<tr>
+<td>获取某 score 范围内的个数</td>
+<td><code>ZCOUNT key min max</code></td>
+<td>O(log n)</td>
+<td>范围查找后累加统计</td>
+</tr>
+</tbody></table>
+<p>其中 <code>m</code> 表示范围内返回的元素数量。</p>
+<hr>
+<h2 id="跳表结构内部逻辑（示意）"><a href="#跳表结构内部逻辑（示意）" class="headerlink" title="跳表结构内部逻辑（示意）"></a>跳表结构内部逻辑（示意）</h2><p>以一个 ZSet 示例：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">ZADD z 5 alice</span><br><span class="line">ZADD z 10 bob</span><br><span class="line">ZADD z 7 tom</span><br><span class="line">ZADD z 1 kate</span><br></pre></td></tr></table></figure>
+
+<p>跳表结构会长成这样（层数为随机生成的）：</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">Level 3:            bob</span><br><span class="line">Level 2:      tom - bob</span><br><span class="line">Level 1: kate - tom - alice - bob</span><br></pre></td></tr></table></figure>
+
+<p>每一层是有序链表，底层记录所有元素，查询从顶层开始，逐层往下，最终在底层找到目标。</p>
+<hr>
+<h2 id="应用场景举例"><a href="#应用场景举例" class="headerlink" title="应用场景举例"></a>应用场景举例</h2><h3 id="排行榜（经典）"><a href="#排行榜（经典）" class="headerlink" title="排行榜（经典）"></a>排行榜（经典）</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">ZADD game 1000 user1</span><br><span class="line">ZADD game 950 user2</span><br><span class="line">ZADD game 1200 user3</span><br><span class="line">ZRANGE game 0 -1 WITHSCORES   <span class="comment"># 按分数升序输出所有玩家</span></span><br><span class="line">ZREVRANK game user1           <span class="comment"># 查看 user1 的排名（倒序）</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="延时队列"><a href="#延时队列" class="headerlink" title="延时队列"></a>延时队列</h3><p>用 score 表示未来的执行时间戳：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">ZADD task_queue 1680000000 task_id_123</span><br><span class="line">ZRANGEBYSCORE task_queue 0 1680001000 LIMIT 0 1</span><br><span class="line"><span class="comment"># 查当前需要执行的任务</span></span><br></pre></td></tr></table></figure>
+
+<h3 id="动态权重调度（比如任务优先级）"><a href="#动态权重调度（比如任务优先级）" class="headerlink" title="动态权重调度（比如任务优先级）"></a>动态权重调度（比如任务优先级）</h3><p>score 表示优先级，值越小优先级越高：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">ZADD job 1 job1</span><br><span class="line">ZADD job 3 job2</span><br><span class="line">ZRANGE job 0 0        <span class="comment"># 获取优先级最高的任务</span></span><br><span class="line">ZREM job job1         <span class="comment"># 删除执行完成的任务</span></span><br></pre></td></tr></table></figure>
+
+<hr>
+<h2 id="与-List、Set、Hash-的对比"><a href="#与-List、Set、Hash-的对比" class="headerlink" title="与 List、Set、Hash 的对比"></a>与 List、Set、Hash 的对比</h2><table>
+<thead>
+<tr>
+<th>结构</th>
+<th>是否排序</th>
+<th>是否支持范围查找</th>
+<th>插入&#x2F;查找复杂度</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>List</td>
+<td>按插入顺序</td>
+<td>支持（按位置）</td>
+<td>O(1)&#x2F;O(n)</td>
+<td>消息队列</td>
+</tr>
+<tr>
+<td>Set</td>
+<td>无序</td>
+<td>不支持</td>
+<td>O(1)</td>
+<td>唯一元素集合</td>
+</tr>
+<tr>
+<td>ZSet</td>
+<td>按 score 排序</td>
+<td>支持</td>
+<td>O(log n)</td>
+<td>排行榜、延迟队列</td>
+</tr>
+<tr>
+<td>Hash</td>
+<td>无序</td>
+<td>不支持</td>
+<td>O(1)</td>
+<td>映射结构</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="内存占用注意事项"><a href="#内存占用注意事项" class="headerlink" title="内存占用注意事项"></a>内存占用注意事项</h2><p>ZSet 中的跳表节点比较复杂，包含：</p>
+<ul>
+<li>元素值（字符串）</li>
+<li>score（double）</li>
+<li>多级 forward 指针</li>
+<li>span 用于计算 rank</li>
+</ul>
+<p>如果元素很多、节点层数高，跳表的内存占用会比普通链表&#x2F;集合大，需要注意评估。</p>
+<hr>
+<h2 id="总结-3"><a href="#总结-3" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>ZSet 是 Redis 提供的<strong>有序集合结构</strong></li>
+<li>底层是 <strong>哈希表 + 跳表</strong> 的组合，既支持快速定位，也支持按顺序遍历</li>
+<li>提供排名、区间删除、分数查找、范围扫描等高级操作</li>
+<li>实现简单、查询快、非常适合排行榜、权重调度、定时任务等场景</li>
+<li>是 Redis 中最具代表性的高性能数据结构之一</li>
+</ul>
+<p>好的，我们进入 Redis 学习的第五讲，讲解：</p>
+<hr>
+<h1 id="Redis-的主从复制与-Sentinel-高可用机制"><a href="#Redis-的主从复制与-Sentinel-高可用机制" class="headerlink" title="Redis 的主从复制与 Sentinel 高可用机制"></a>Redis 的主从复制与 Sentinel 高可用机制</h1><p>在生产环境中，单台 Redis 实例面临<strong>单点故障</strong>、<strong>无法扩容</strong>等问题。为了解决这类问题，Redis 提供了主从复制和哨兵机制（Sentinel），实现基本的高可用。</p>
+<hr>
+<h2 id="主从复制（Replication）"><a href="#主从复制（Replication）" class="headerlink" title="主从复制（Replication）"></a>主从复制（Replication）</h2><h3 id="作用"><a href="#作用" class="headerlink" title="作用"></a>作用</h3><ul>
+<li>实现读写分离（主写从读）</li>
+<li>提供故障转移能力的基础</li>
+<li>多机热备，提高数据安全性</li>
+</ul>
+<h3 id="架构示意"><a href="#架构示意" class="headerlink" title="架构示意"></a>架构示意</h3><figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">Client</span><br><span class="line">       |</span><br><span class="line">    +------+       +------+</span><br><span class="line">    | Master | --&gt; | Slave1|</span><br><span class="line">    +------+       +------+</span><br><span class="line">                      |</span><br><span class="line">                   +------+</span><br><span class="line">                   |Slave2|</span><br><span class="line">                   +------+</span><br></pre></td></tr></table></figure>
+
+<h3 id="启动主从复制"><a href="#启动主从复制" class="headerlink" title="启动主从复制"></a>启动主从复制</h3><p>在从库的 redis.conf 中设置：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">replicaof &lt;master-ip&gt; &lt;master-port&gt;</span><br></pre></td></tr></table></figure>
+
+<p>或者运行时命令：</p>
+<figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">replicaof 127.0.0.1 6379</span><br></pre></td></tr></table></figure>
+
+<h3 id="同步过程"><a href="#同步过程" class="headerlink" title="同步过程"></a>同步过程</h3><ol>
+<li>从库连接主库，发送 <code>PSYNC</code> 命令</li>
+<li>首次同步：主库执行 BGSAVE 生成 RDB 文件并发送给从库</li>
+<li>增量同步：之后通过命令流（replication backlog）持续同步</li>
+</ol>
+<h3 id="特点"><a href="#特点" class="headerlink" title="特点"></a>特点</h3><ul>
+<li>主库写，从库同步，数据最终一致</li>
+<li>从库是只读状态</li>
+<li>支持链式结构（slave -&gt; slave）</li>
+</ul>
+<hr>
+<h2 id="Sentinel（哨兵）机制"><a href="#Sentinel（哨兵）机制" class="headerlink" title="Sentinel（哨兵）机制"></a>Sentinel（哨兵）机制</h2><h3 id="作用-1"><a href="#作用-1" class="headerlink" title="作用"></a>作用</h3><ul>
+<li>自动监控 Redis 主从节点状态</li>
+<li>主节点故障时，<strong>自动故障转移（failover）</strong></li>
+<li>提供主节点的服务发现功能</li>
+</ul>
+<h3 id="架构图"><a href="#架构图" class="headerlink" title="架构图"></a>架构图</h3><figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">+---------+         +---------+         +---------+</span><br><span class="line">|Sentinel1|         |Sentinel2|         |Sentinel3|</span><br><span class="line">+----+----+         +----+----+         +----+----+</span><br><span class="line">     \                    |                   /</span><br><span class="line">      \                  |                  /</span><br><span class="line">       \                |                 /</span><br><span class="line">        +------------+  |  +------------+</span><br><span class="line">                     |  |  |</span><br><span class="line">                  +--v--v--v--+</span><br><span class="line">                  |  Master   |</span><br><span class="line">                  +--+-----+--+</span><br><span class="line">                     |     |</span><br><span class="line">                  +--v--+ +--v--+</span><br><span class="line">                  |Slave1| |Slave2|</span><br><span class="line">                  +------+ +------+</span><br></pre></td></tr></table></figure>
+
+<h3 id="核心组件"><a href="#核心组件" class="headerlink" title="核心组件"></a>核心组件</h3><ol>
+<li><strong>监控（Monitor）</strong>：定时 PING 主从节点</li>
+<li><strong>通知（Notification）</strong>：主节点异常后发起故障报告</li>
+<li><strong>投票（Leader Election）</strong>：多个哨兵协商选主</li>
+<li><strong>故障转移（Failover）</strong>：重新选主并通知所有从库更新主节点</li>
+</ol>
+<h3 id="配置示例-1"><a href="#配置示例-1" class="headerlink" title="配置示例"></a>配置示例</h3><figure class="highlight bash"><table><tr><td class="code"><pre><span class="line">sentinel monitor mymaster 127.0.0.1 6379 2</span><br><span class="line">sentinel down-after-milliseconds mymaster 5000</span><br><span class="line">sentinel failover-timeout mymaster 10000</span><br><span class="line">sentinel parallel-syncs mymaster 1</span><br></pre></td></tr></table></figure>
+
+<h3 id="特点-1"><a href="#特点-1" class="headerlink" title="特点"></a>特点</h3><ul>
+<li>最少部署 3 个哨兵节点，确保仲裁可靠性</li>
+<li>会自动修改从库指向新主库</li>
+<li>与客户端配合使用，实现服务发现（客户端动态连接主节点）</li>
+</ul>
+<hr>
+<h2 id="自问自答-3"><a href="#自问自答-3" class="headerlink" title="自问自答"></a>自问自答</h2><ol>
+<li>Redis 主从同步机制是什么？全量同步和增量同步怎么实现？</li>
+<li>Redis Sentinel 的作用是什么？如何实现自动故障转移？</li>
+<li>Redis 主从架构如何避免脑裂？</li>
+<li>Redis 从库能写入吗？为什么？</li>
+<li>Redis Sentinel 和 ZooKeeper 的区别？</li>
+</ol>
+<hr>
+<h2 id="实战建议-2"><a href="#实战建议-2" class="headerlink" title="实战建议"></a>实战建议</h2><table>
+<thead>
+<tr>
+<th>建议</th>
+<th>理由</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>使用至少 1 主 2 从 3 哨兵结构</td>
+<td>实现高可用、读写分离</td>
+</tr>
+<tr>
+<td>设置 <code>min-slaves-to-write</code></td>
+<td>保证主库写操作安全</td>
+</tr>
+<tr>
+<td>Sentinel + 客户端主节点发现</td>
+<td>防止客户端连接老主节点</td>
+</tr>
+<tr>
+<td>定期监控主从延迟</td>
+<td>避免读到旧数据</td>
+</tr>
+</tbody></table>
+<h1 id="Redis-主从架构如何避免脑裂"><a href="#Redis-主从架构如何避免脑裂" class="headerlink" title="Redis 主从架构如何避免脑裂"></a>Redis 主从架构如何避免脑裂</h1><h2 id="使用-Redis-Sentinel（哨兵）"><a href="#使用-Redis-Sentinel（哨兵）" class="headerlink" title="使用 Redis Sentinel（哨兵）"></a>使用 Redis Sentinel（哨兵）</h2><p>Redis Sentinel 是官方提供的高可用性解决方案，主要用于监控 Redis 实例的状态，进行故障转移，并通知管理员。通过 Redis Sentinel 可以有效避免脑裂问题，具体做法包括：</p>
+<ul>
+<li><strong>监控主从节点</strong>：Sentinel 定期检查 Redis 实例的健康状况，一旦主节点不可用，Sentinel 会自动选举一个新的主节点。</li>
+<li><strong>故障转移</strong>：当检测到主节点不可用时，Sentinel 会从从节点中选举一个新的主节点，自动进行故障转移，确保服务的持续可用。</li>
+<li><strong>通知报警</strong>：在发生故障时，Sentinel 会通过邮件、短信等方式通知管理员，便于及时处理。</li>
+</ul>
+<p>这种方式可以确保即使主节点失效，从节点能够迅速接管，减少脑裂的风险。</p>
+<h2 id="配置-auto-aof-rewrite-和-appendonly"><a href="#配置-auto-aof-rewrite-和-appendonly" class="headerlink" title="配置 auto-aof-rewrite 和 appendonly"></a>配置 <code>auto-aof-rewrite</code> 和 <code>appendonly</code></h2><p>Redis 在启用 AOF（Append Only File）持久化模式时，每个写操作都会被记录到 AOF 文件中，这样可以在恢复时保持数据一致性。脑裂发生时，如果从节点与主节点的数据不一致，AOF 文件可以在重启时应用，确保数据恢复。</p>
+<p>然而，仅依赖 AOF 并不能完全避免脑裂，结合 Redis Sentinel 可以增强整体的高可用性和一致性。</p>
+<h2 id="配置-min-slaves-to-write-和-min-slaves-max-lag"><a href="#配置-min-slaves-to-write-和-min-slaves-max-lag" class="headerlink" title="配置 min-slaves-to-write 和 min-slaves-max-lag"></a>配置 <code>min-slaves-to-write</code> 和 <code>min-slaves-max-lag</code></h2><p>为了减少脑裂的可能性，可以在主节点上配置以下参数：</p>
+<ul>
+<li><code>**min-slaves-to-write**</code>：在进行写操作时，主节点要求至少有 N 个从节点同步确认。这有助于确保主节点的数据不会丢失，并避免主从数据不一致。</li>
+<li><code>**min-slaves-max-lag**</code>：限制从节点的最大延迟，如果某些从节点的同步延迟过大，主节点将停止接受写操作，避免因为数据延迟而导致的数据不一致。</li>
+</ul>
+<p>通过这些配置，确保主节点只有在至少一部分从节点同步成功的情况下才会执行写操作，有助于减少脑裂的发生。</p>
+<h2 id="使用-Redis-Cluster（集群）"><a href="#使用-Redis-Cluster（集群）" class="headerlink" title="使用 Redis Cluster（集群）"></a>使用 Redis Cluster（集群）</h2><p>Redis 集群是一种分布式部署方式，能够通过分片将数据分布到多个节点上，每个主节点都有一个或多个从节点进行备份。在 Redis 集群中：</p>
+<ul>
+<li><strong>主从备份</strong>：每个主节点都有一个或多个从节点作为备份，确保主节点故障时可以进行快速的故障转移。</li>
+<li><strong>自动选举</strong>：集群内部会自动进行主节点的选举，避免了因为某个节点不可用而导致的数据不一致。</li>
+<li><strong>PAXOS 或 Raft 协议</strong>：集群内部使用一致性协议来确保数据的一致性，避免脑裂问题。</li>
+</ul>
+<p>使用 Redis 集群可以通过分布式架构减少单点故障的影响，自动化的故障转移机制有效降低了脑裂发生的几率。</p>
+<h2 id="合理设计客户端架构"><a href="#合理设计客户端架构" class="headerlink" title="合理设计客户端架构"></a>合理设计客户端架构</h2><p>为了避免在 Redis 主从架构中发生脑裂问题，客户端架构需要能够动态适应主从节点的变化。现代 Redis 客户端（如 <code>redis-py</code>）通常支持与 Redis Sentinel 或 Redis Cluster 协作，能够自动获取当前的主节点信息，并在发生故障时自动切换连接。</p>
+<p>客户端应具备以下功能：</p>
+<ul>
+<li><strong>自动发现主节点</strong>：客户端能够自动从 Sentinel 或集群获取主节点信息，确保在节点变化时无缝切换。</li>
+<li><strong>支持故障转移</strong>：客户端支持 Sentinel 的故障转移机制，能够在主节点不可用时自动连接到新的主节点。</li>
+</ul>
+<p>通过设计智能客户端，可以减少由于节点故障带来的脑裂问题。</p>
+<h2 id="监控和报警系统"><a href="#监控和报警系统" class="headerlink" title="监控和报警系统"></a>监控和报警系统</h2><p>除了配置 Redis Sentinel 和 Redis 集群外，建立全面的监控和报警系统同样重要。通过监控 Redis 实例的健康状态，可以在节点出现异常时及时发现问题，避免脑裂的发生。</p>
+<p>常见的监控项包括：</p>
+<ul>
+<li>节点的连接状态和响应时间</li>
+<li>主从同步的延迟</li>
+<li>Redis 实例的内存和 CPU 使用情况</li>
+</ul>
+<p>结合报警系统，确保在发生故障时能够迅速采取措施进行修复，防止脑裂的发生。</p>
+<h2 id="总结-4"><a href="#总结-4" class="headerlink" title="总结"></a>总结</h2><p>通过使用 Redis Sentinel 或 Redis 集群，并合理配置主从同步策略，可以有效避免 Redis 主从架构中的脑裂问题。此外，设计智能客户端架构和建立完善的监控报警机制，也能进一步提升系统的容错能力，确保 Redis 在高可用性和一致性方面的稳定运行。</p>
+<h1 id="Redis-Sentinel-和-ZooKeeper-的区别"><a href="#Redis-Sentinel-和-ZooKeeper-的区别" class="headerlink" title="Redis Sentinel 和 ZooKeeper 的区别"></a>Redis Sentinel 和 ZooKeeper 的区别</h1><h2 id="设计目标和功能"><a href="#设计目标和功能" class="headerlink" title="设计目标和功能"></a>设计目标和功能</h2><p><strong>Redis Sentinel</strong>： Redis Sentinel 是专为 Redis 提供高可用性解决方案的工具。它主要负责监控 Redis 实例，检测主节点的状态，并在主节点故障时执行自动故障转移，将从节点提升为新的主节点。它的核心功能包括故障检测、故障转移、通知和监控。Redis Sentinel 适用于 Redis 集群的高可用性管理。</p>
+<p><strong>ZooKeeper</strong>： ZooKeeper 是一个分布式协调服务，旨在帮助不同的分布式应用系统管理配置、命名、同步服务等。它不仅限于 Redis，广泛用于需要高一致性和协调的分布式系统中。ZooKeeper 提供了分布式锁、配置管理、节点监控、领导者选举等多种功能，适用于大规模的分布式应用。ZooKeeper 提供的强一致性协议使得它适用于任何需要分布式协调的应用。</p>
+<h2 id="总结-5"><a href="#总结-5" class="headerlink" title="总结"></a>总结</h2><p>Redis Sentinel 和 ZooKeeper 都是高可用性和分布式系统中的重要工具，但它们的应用场景、设计目标和功能有所不同。Redis Sentinel 专为 Redis 提供高可用性解决方案，适用于 Redis 集群的监控和故障转移。而 ZooKeeper 是一个通用的分布式协调服务，适用于广泛的分布式系统，提供强一致性和协调功能，支持更复杂的分布式应用。</p>
+]]></content>
+      <tags>
+        <tag>Redis</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Hey, there~</title>
+    <url>/2025/03/18/%E4%BB%8B%E7%BB%8D/</url>
+    <content><![CDATA[<h1 id="介绍"><a href="#介绍" class="headerlink" title="介绍"></a>介绍</h1><p>Hey, there~</p>
+<p>使用的 <code>hexo</code> + <code>butterfly</code> 生成的静态页面,部署在 Github 个人主页</p>
+<p>之后应该会记录一些自己的学习笔记</p>
+<p>主要学习和工作方向是安全研发,但是目前工作内容很杂,因此记录的内容也会涉及不同的领域</p>
+]]></content>
+      <tags>
+        <tag>闲话</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>数据结构</title>
+    <url>/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/</url>
+    <content><![CDATA[<p>快速回忆下大学的数据结构课， 这些看完， 大概下面这些能理解一点啦~</p>
+<ul>
+<li>树</li>
+<li>二叉查找树</li>
+<li>完全二叉树</li>
+<li>平衡二叉树</li>
+<li>n叉树</li>
+<li>树的遍历</li>
+<li>B+树</li>
+<li>跳表</li>
+<li>红黑树</li>
+<li>AVL树</li>
+<li>B树</li>
+</ul>
+<h1 id="树的基本概念"><a href="#树的基本概念" class="headerlink" title="树的基本概念"></a>树的基本概念</h1><p>学习树的基础是理解更复杂的树结构（如红黑树、AVL树等）的前提。让我们从最基本的树概念开始。</p>
+<p><strong>树</strong>（Tree）是一种非线性的数据结构，由节点（Node）组成，节点之间通过边（Edge）连接。树的结构很像倒立的家谱图或者文件系统的结构。</p>
+<p>树是由根节点（Root）开始，经过多个层级的分支（Branch），直到叶子节点（Leaf）</p>
+<h2 id="树的基本术语："><a href="#树的基本术语：" class="headerlink" title="树的基本术语："></a>树的基本术语：</h2><ul>
+<li><strong>根节点（Root）</strong>：树的起始节点，没有父节点。</li>
+<li><strong>节点（Node）</strong>：树中的每个元素，包含数据部分以及指向其他节点的指针（或引用）。</li>
+<li><strong>边（Edge）</strong>：节点之间的连接。</li>
+<li><strong>子节点（Child）</strong>：直接连接到某个节点的节点，称为该节点的子节点。</li>
+<li><strong>父节点（Parent）</strong>：一个节点的直接连接节点是它的父节点。</li>
+<li><strong>叶子节点（Leaf）</strong>：没有子节点的节点。</li>
+<li><strong>高度（Height）</strong>：树的高度是从根节点到最深的叶子节点的最长路径的长度（也可以理解为树的层级数）。</li>
+<li><strong>深度（Depth）</strong>：节点的深度是从根节点到该节点的路径长度。</li>
+<li><strong>层级（Level）</strong>：树中的每一层，通常层级从0开始（根节点是第0层）。</li>
+</ul>
+<h2 id="树的类型"><a href="#树的类型" class="headerlink" title="树的类型"></a>树的类型</h2><p>树可以有不同的形式，以下是几种常见的树类型：</p>
+<h3 id="二叉树-Binary-Tree"><a href="#二叉树-Binary-Tree" class="headerlink" title="二叉树 (Binary Tree)"></a>二叉树 (Binary Tree)</h3><ul>
+<li><strong>定义</strong>：每个节点最多有两个子节点，通常称为左子节点和右子节点。</li>
+<li><strong>特点</strong>：<ul>
+<li>每个节点最多有两个子节点。</li>
+<li>二叉树的每个节点可以有不同数量的子节点（0个、1个或2个）。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：二叉树是很多复杂树结构的基础，例如二叉查找树、堆等。</li>
+</ul>
+<h3 id="二叉查找树-Binary-Search-Tree-BST"><a href="#二叉查找树-Binary-Search-Tree-BST" class="headerlink" title="二叉查找树 (Binary Search Tree, BST)"></a>二叉查找树 (Binary Search Tree, BST)</h3><ul>
+<li><strong>定义</strong>：它是一种特殊的二叉树，节点的左子树上的所有值都小于节点的值，右子树上的所有值都大于节点的值。</li>
+<li><strong>特点</strong>：<ul>
+<li>左子树的所有节点的值都小于根节点。</li>
+<li>右子树的所有节点的值都大于根节点。</li>
+<li>这使得搜索操作可以通过比较快速地确定走向左子树还是右子树。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：用于实现高效的查找、插入、删除等操作。</li>
+</ul>
+<h3 id="完全二叉树-Complete-Binary-Tree"><a href="#完全二叉树-Complete-Binary-Tree" class="headerlink" title="完全二叉树 (Complete Binary Tree)"></a>完全二叉树 (Complete Binary Tree)</h3><ul>
+<li><strong>定义</strong>：一个二叉树，除了最后一层外，其他层都是满的，并且最后一层的节点都靠左排列。</li>
+<li><strong>特点</strong>：<ul>
+<li>除了最后一层，其他层的节点数量都是满的。</li>
+<li>最后一层的节点从左到右填充。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：常用于堆（如大顶堆和小顶堆）等数据结构。</li>
+</ul>
+<h3 id="平衡二叉树-Balanced-Binary-Tree"><a href="#平衡二叉树-Balanced-Binary-Tree" class="headerlink" title="平衡二叉树 (Balanced Binary Tree)"></a>平衡二叉树 (Balanced Binary Tree)</h3><ul>
+<li><strong>定义</strong>：平衡二叉树是一种二叉树，要求每个节点的左右子树高度差不超过一定的范围（如 AVL 树就是一种平衡二叉树）。</li>
+<li><strong>特点</strong>：<ul>
+<li>保证树的高度较低，避免树退化成链表。</li>
+<li>高效的查找、插入和删除操作。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：如 AVL 树、红黑树等，广泛用于数据库索引。</li>
+</ul>
+<h3 id="n叉树-n-ary-Tree"><a href="#n叉树-n-ary-Tree" class="headerlink" title="n叉树 (n-ary Tree)"></a>n叉树 (n-ary Tree)</h3><ul>
+<li><strong>定义</strong>：n叉树是每个节点最多有n个子节点的树。</li>
+<li><strong>特点</strong>：<ul>
+<li>每个节点最多有n个子节点。</li>
+<li>常用于表示具有多层次的复杂数据结构，如文件系统。</li>
+</ul>
+</li>
+</ul>
+<h2 id="树的遍历"><a href="#树的遍历" class="headerlink" title="树的遍历"></a>树的遍历</h2><p>树的遍历是指访问树中所有节点的过程。常见的树的遍历方式有三种：</p>
+<h3 id="前序遍历-Preorder-Traversal"><a href="#前序遍历-Preorder-Traversal" class="headerlink" title="前序遍历 (Preorder Traversal)"></a>前序遍历 (Preorder Traversal)</h3><ul>
+<li><strong>步骤</strong>：先访问当前节点，然后递归地前序遍历左子树，再递归地前序遍历右子树。</li>
+<li><strong>顺序</strong>：根节点 → 左子树 → 右子树。</li>
+</ul>
+<h3 id="中序遍历-Inorder-Traversal"><a href="#中序遍历-Inorder-Traversal" class="headerlink" title="中序遍历 (Inorder Traversal)"></a>中序遍历 (Inorder Traversal)</h3><ul>
+<li><strong>步骤</strong>：递归地中序遍历左子树，访问当前节点，然后递归地中序遍历右子树。</li>
+<li><strong>顺序</strong>：左子树 → 根节点 → 右子树。</li>
+<li><strong>特点</strong>：二叉查找树的中序遍历结果是按从小到大的顺序排列的。</li>
+</ul>
+<h3 id="后序遍历-Postorder-Traversal"><a href="#后序遍历-Postorder-Traversal" class="headerlink" title="后序遍历 (Postorder Traversal)"></a>后序遍历 (Postorder Traversal)</h3><ul>
+<li><strong>步骤</strong>：递归地后序遍历左子树，再递归地后序遍历右子树，然后访问当前节点。</li>
+<li><strong>顺序</strong>：左子树 → 右子树 → 根节点。</li>
+</ul>
+<h3 id="层次遍历-Level-Order-Traversal"><a href="#层次遍历-Level-Order-Traversal" class="headerlink" title="层次遍历 (Level Order Traversal)"></a>层次遍历 (Level Order Traversal)</h3><ul>
+<li><strong>步骤</strong>：按层级遍历树的节点，通常使用队列来实现。</li>
+<li><strong>顺序</strong>：根节点 → 第一层 → 第二层 → 第三层 → ……直到最后一层。</li>
+</ul>
+<h2 id="树的应用"><a href="#树的应用" class="headerlink" title="树的应用"></a>树的应用</h2><p>树作为一种数据结构，有许多实际应用，常见的包括：</p>
+<ul>
+<li><strong>文件系统</strong>：文件和目录组织成树形结构，根目录是树的根节点，文件和文件夹是节点。</li>
+<li><strong>数据库索引</strong>：树结构（如B树、B+树）常用于数据库的索引，帮助快速查找数据。</li>
+<li><strong>游戏决策树</strong>：用于表示游戏中的可能决策路径。</li>
+</ul>
+<hr>
+<h2 id="二叉查找树（Binary-Search-Tree-BST）"><a href="#二叉查找树（Binary-Search-Tree-BST）" class="headerlink" title="二叉查找树（Binary Search Tree, BST）"></a>二叉查找树（Binary Search Tree, BST）</h2><h3 id="定义"><a href="#定义" class="headerlink" title="定义"></a>定义</h3><p>二叉查找树是一种特殊的二叉树，满足以下性质：</p>
+<ul>
+<li>每个节点最多有两个子节点。</li>
+<li>左子树中所有节点的值小于根节点。</li>
+<li>右子树中所有节点的值大于根节点。</li>
+<li>每一棵子树也都是一棵二叉查找树。</li>
+</ul>
+<h3 id="操作"><a href="#操作" class="headerlink" title="操作"></a>操作</h3><p><strong>查找（Search）</strong></p>
+<p>从根节点开始：</p>
+<ul>
+<li>如果目标值等于当前节点，返回。</li>
+<li>如果目标值小于当前节点，进入左子树。</li>
+<li>如果目标值大于当前节点，进入右子树。</li>
+</ul>
+<p>查找的时间复杂度与树的高度有关，最坏是 O(n)，最优是 O(log n)。</p>
+<p><strong>插入（Insert）</strong></p>
+<p>插入值时，按查找路径向下走，找到空位插入即可，不会破坏 BST 结构。</p>
+<p><strong>删除（Delete）</strong></p>
+<p>分三种情况处理：</p>
+<ol>
+<li>删除叶子节点，直接删除。</li>
+<li>删除只有一个子节点的节点，用子节点替换该节点。</li>
+<li>删除有两个子节点的节点，找到该节点的中序后继或中序前驱，用它的值替换当前节点，再删除那个节点。</li>
+</ol>
+<h3 id="问题：BST-可能退化成链表"><a href="#问题：BST-可能退化成链表" class="headerlink" title="问题：BST 可能退化成链表"></a>问题：BST 可能退化成链表</h3><p>如果连续插入有序数据，例如 1、2、3、4、5，树就会变成单边链表，导致查找效率退化为 O(n)。</p>
+<p>为了解决这个问题，就需要引入“自平衡”的机制，也就是平衡二叉树。</p>
+<hr>
+<h2 id="平衡二叉树的基本思想"><a href="#平衡二叉树的基本思想" class="headerlink" title="平衡二叉树的基本思想"></a>平衡二叉树的基本思想</h2><h3 id="什么是平衡"><a href="#什么是平衡" class="headerlink" title="什么是平衡"></a>什么是平衡</h3><p>树的高度决定了查找、插入、删除的效率。所谓平衡，是指尽量保持每个节点的左右子树高度差不要太大，避免形成单边长链。</p>
+<p>平衡树的目标是让树的高度保持在 O(log n) 以内，从而提高整体性能。</p>
+<h3 id="平衡的实现手段：旋转操作"><a href="#平衡的实现手段：旋转操作" class="headerlink" title="平衡的实现手段：旋转操作"></a>平衡的实现手段：旋转操作</h3><p>当插入或删除节点后导致失衡，可以通过旋转操作让树重新平衡。</p>
+<p><strong>左旋</strong></p>
+<p>将某个节点的右子节点提升为新的父节点，原父节点变为其左子节点。</p>
+<p>例子： 节点 A 有右子节点 B，B 再有右子节点 C</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">原始结构：</span><br><span class="line">    A</span><br><span class="line">     \</span><br><span class="line">      B</span><br><span class="line">       \</span><br><span class="line">        C</span><br><span class="line"></span><br><span class="line">左旋后：</span><br><span class="line">    B</span><br><span class="line">   / \</span><br><span class="line">  A   C</span><br></pre></td></tr></table></figure>
+
+<p><strong>右旋</strong></p>
+<p>将某个节点的左子节点提升为新的父节点，原父节点变为其右子节点。</p>
+<p>例子： 节点 C 有左子节点 B，B 再有左子节点 A</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">原始结构：</span><br><span class="line">    C</span><br><span class="line">   /</span><br><span class="line">  B</span><br><span class="line"> /</span><br><span class="line">A</span><br><span class="line"></span><br><span class="line">右旋后：</span><br><span class="line">    B</span><br><span class="line">   / \</span><br><span class="line">  A   C</span><br></pre></td></tr></table></figure>
+
+<p>通过这些旋转，可以动态调整树结构，使其保持平衡。</p>
+<hr>
+<h2 id="红黑树简介"><a href="#红黑树简介" class="headerlink" title="红黑树简介"></a>红黑树简介</h2><p>红黑树是自平衡的二叉查找树，它使用颜色和旋转来控制树的高度。</p>
+<p>红黑树不是严格平衡的，但它能保证最长路径不会超过最短路径的两倍，因此效率稳定。</p>
+<h3 id="红黑树的五个性质"><a href="#红黑树的五个性质" class="headerlink" title="红黑树的五个性质"></a>红黑树的五个性质</h3><ol>
+<li>每个节点是红色或黑色。</li>
+<li>根节点必须是黑色。</li>
+<li>所有叶子节点（NIL 节点）是黑色。</li>
+<li>如果一个节点是红色的，则它的两个子节点必须是黑色的（不能连续两个红色节点）。</li>
+<li>从任意节点到其所有叶子节点的路径上，包含的黑色节点数量必须相同。</li>
+</ol>
+<p>这些性质共同保证了树的平衡性。</p>
+<hr>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>普通二叉查找树查找效率依赖于树高，可能退化成链表。</li>
+<li>平衡二叉树通过旋转操作保持结构平衡，提升查找、插入、删除性能。</li>
+<li>红黑树是一种宽松的平衡树，通过颜色约束加旋转来维持近似平衡。</li>
+<li>红黑树是很多底层库和系统（如 Java TreeMap、C++ STL、Linux 内核）使用的高效结构。</li>
+</ul>
+<hr>
+<h1 id="红黑树与-AVL-性能对比，如何选型"><a href="#红黑树与-AVL-性能对比，如何选型" class="headerlink" title="红黑树与 AVL 性能对比，如何选型"></a>红黑树与 AVL 性能对比，如何选型</h1><p>这是一个很实用、也很容易被误解的问题。我们来进行一次<strong>实事求是</strong>的对比，站在工程实践的角度，讲清楚 <strong>红黑树 vs AVL 树 的性能差异、适用场景、优缺点、如何选型</strong>。</p>
+<hr>
+<h2 id="红黑树与-AVL-树的核心差异"><a href="#红黑树与-AVL-树的核心差异" class="headerlink" title="红黑树与 AVL 树的核心差异"></a>红黑树与 AVL 树的核心差异</h2><table>
+<thead>
+<tr>
+<th>比较点</th>
+<th>AVL 树</th>
+<th>红黑树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>平衡性</td>
+<td>严格平衡（左右子树高度差 ≤ 1）</td>
+<td>相对平衡（通过颜色规则控制）</td>
+</tr>
+<tr>
+<td>插入效率</td>
+<td>较慢，可能频繁旋转</td>
+<td>较快，旋转次数更少</td>
+</tr>
+<tr>
+<td>删除效率</td>
+<td>更慢（容易失衡）</td>
+<td>更快（更容忍不平衡）</td>
+</tr>
+<tr>
+<td>查找效率</td>
+<td>稍快（更矮更“紧凑”）</td>
+<td>稍慢（更高一些）</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>中等</td>
+<td>略高，染色逻辑更麻烦</td>
+</tr>
+<tr>
+<td>实际树高</td>
+<td>log(n)，更低</td>
+<td>最坏 2log(n)，略高但可接受</td>
+</tr>
+<tr>
+<td>应用场景</td>
+<td>查找密集</td>
+<td>插入&#x2F;删除频繁</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="时间复杂度对比（理论上相同）"><a href="#时间复杂度对比（理论上相同）" class="headerlink" title="时间复杂度对比（理论上相同）"></a>时间复杂度对比（理论上相同）</h2><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>AVL</th>
+<th>红黑树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>插入</td>
+<td>O(log n) + 最多 2 次旋转</td>
+<td>O(log n) + 最多 3 次旋转 + 染色</td>
+</tr>
+<tr>
+<td>删除</td>
+<td>O(log n) + 最多 log n 次旋转</td>
+<td>O(log n) + 最多 3 次旋转 + 染色</td>
+</tr>
+</tbody></table>
+<p><strong>注意</strong>：红黑树旋转次数少于 AVL，是因为它更“宽松”地控制平衡。</p>
+<hr>
+<h2 id="为什么工程中更常用红黑树？"><a href="#为什么工程中更常用红黑树？" class="headerlink" title="为什么工程中更常用红黑树？"></a>为什么工程中更常用红黑树？</h2><h3 id="1-插入、删除性能更稳定"><a href="#1-插入、删除性能更稳定" class="headerlink" title="1. 插入、删除性能更稳定"></a>1. 插入、删除性能更稳定</h3><p>AVL 树插入删除操作中需要频繁调整结构（旋转），因为它追求高度的平衡性。虽然这保证了查找很快，但维护成本高。</p>
+<p>红黑树采用更“保守”的平衡策略，调整动作较少，<strong>整体吞吐量更好</strong>。这在系统级开发中非常重要，比如操作系统、数据库、语言运行时。</p>
+<h3 id="2-插入-删除频率高时，红黑树吞吐量优于-AVL"><a href="#2-插入-删除频率高时，红黑树吞吐量优于-AVL" class="headerlink" title="2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVL"></a>2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVL</h3><p>AVL树适合“读多写少”的场景，比如缓存系统。</p>
+<p>红黑树适合“读写都频繁”的场景，比如内核调度、任务队列、映射表等。</p>
+<hr>
+<h2 id="实际案例对比"><a href="#实际案例对比" class="headerlink" title="实际案例对比"></a>实际案例对比</h2><h3 id="Java-TreeMap-TreeSet"><a href="#Java-TreeMap-TreeSet" class="headerlink" title="Java TreeMap &#x2F; TreeSet"></a>Java <code>TreeMap</code> &#x2F; <code>TreeSet</code></h3><ul>
+<li>使用的是 <strong>红黑树</strong> 实现</li>
+<li>原因：Java中集合类通常面对频繁插入和删除（如实时排序、排名等），红黑树性能更均衡</li>
+</ul>
+<h3 id="C-STL-的-std-map-std-set"><a href="#C-STL-的-std-map-std-set" class="headerlink" title="C++ STL 的 std::map &#x2F; std::set"></a>C++ STL 的 <code>std::map</code> &#x2F; <code>std::set</code></h3><ul>
+<li>也使用的是 <strong>红黑树</strong></li>
+<li>同样考虑的是泛型容器的插入&#x2F;删除复杂度</li>
+</ul>
+<h3 id="Linux-内核调度器-时间红黑树（RB-tree）"><a href="#Linux-内核调度器-时间红黑树（RB-tree）" class="headerlink" title="Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）"></a>Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）</h3><ul>
+<li>使用的是红黑树（见 <code>include/linux/rbtree.h</code>）</li>
+<li>因为调度器中的进程插入&#x2F;删除频繁，而查找不一定多，所以使用红黑树性能更佳</li>
+</ul>
+<hr>
+<h2 id="什么时候选-AVL-树？"><a href="#什么时候选-AVL-树？" class="headerlink" title="什么时候选 AVL 树？"></a>什么时候选 AVL 树？</h2><p>虽然工程里红黑树更常见，但 <strong>AVL 并不是没用</strong>，它在以下场景下依然有价值：</p>
+<ul>
+<li>对查找性能要求极致，数据变动频率低的场景<ul>
+<li>如<strong>内存索引、缓存服务、读密集型数据库</strong></li>
+</ul>
+</li>
+<li>数据量适中，性能压力可控，希望保证查找时间始终最优</li>
+</ul>
+<p>比如：一个静态配置中心，你预先插入一些配置项，然后主要是查找访问。用 AVL 是合理的。</p>
+<hr>
+<h2 id="工程选型建议总结"><a href="#工程选型建议总结" class="headerlink" title="工程选型建议总结"></a>工程选型建议总结</h2><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐结构</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找频繁、插入删除极少</td>
+<td>AVL</td>
+<td>查找快，保持严格平衡</td>
+</tr>
+<tr>
+<td>插入&#x2F;删除频繁，查找适中</td>
+<td>红黑树</td>
+<td>性能更均衡，旋转少</td>
+</tr>
+<tr>
+<td>需要范围查询</td>
+<td>B+树</td>
+<td>存储系统常用结构（如数据库）</td>
+</tr>
+<tr>
+<td>高并发环境下</td>
+<td>并发跳表 &#x2F; 哈希表</td>
+<td>红黑树&#x2F;AVL 不擅长并发控制</td>
+</tr>
+<tr>
+<td>内核、调度系统</td>
+<td>红黑树</td>
+<td>插入&#x2F;删除频繁，吞吐量更重要</td>
+</tr>
+<tr>
+<td>学术 &#x2F; 教学用</td>
+<td>AVL</td>
+<td>更容易推导、理解平衡原理</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="总结一句话"><a href="#总结一句话" class="headerlink" title="总结一句话"></a>总结一句话</h2><p><strong>红黑树是工业界的主流选型，因为它在保持平衡和性能之间做了非常合理的权衡。</strong></p>
+<p>而 AVL 更适合做“查找效率最优”的算法研究、教学或低变更场景。</p>
+<h1 id="B树、B-树、跳表"><a href="#B树、B-树、跳表" class="headerlink" title="B树、B+树、跳表"></a>B树、B+树、跳表</h1><p>非常好，接下来我们进入数据库&#x2F;存储系统中常用的三种结构：<strong>B树、B+树、跳表</strong>，它们都是用于<strong>范围查找、批量排序、动态插入删除</strong>等复杂需求下的数据结构。</p>
+<p>我会按这个顺序讲解：</p>
+<ol>
+<li><strong>先讲 B 树</strong>：基础结构，理解它是后续 B+ 树的前提</li>
+<li><strong>再讲 B+ 树</strong>：数据库索引、文件系统最常用结构</li>
+<li><strong>最后讲跳表</strong>：高性能内存结构，Redis 的最爱</li>
+</ol>
+<p>每一个我们都会涵盖：</p>
+<ul>
+<li>是什么（直观理解）</li>
+<li>如何组织数据</li>
+<li>查找&#x2F;插入&#x2F;删除怎么做</li>
+<li>为什么它适合某类场景</li>
+</ul>
+<hr>
+<h2 id="B-树（Balanced-Tree-多路平衡查找树）"><a href="#B-树（Balanced-Tree-多路平衡查找树）" class="headerlink" title="B 树（Balanced Tree &#x2F; 多路平衡查找树）"></a>B 树（Balanced Tree &#x2F; 多路平衡查找树）</h2><h3 id="是什么"><a href="#是什么" class="headerlink" title="是什么"></a>是什么</h3><p>B 树是一种<strong>多路搜索树</strong>，是对二叉搜索树的推广。每个节点不仅可以有两个子节点，而是可以有多个。<br>广泛用于<strong>磁盘存储、数据库索引结构</strong>中，因为它减少了磁盘读写次数。</p>
+<h3 id="特点"><a href="#特点" class="headerlink" title="特点"></a>特点</h3><ul>
+<li>每个节点最多有 <code>m-1</code> 个数据项，<code>m</code> 个子指针（m 是阶数）</li>
+<li>所有节点的关键字保持有序</li>
+<li>插入、删除后依然保持平衡</li>
+<li>所有叶子节点在同一层（树高固定）</li>
+</ul>
+<h3 id="举例（以3阶-B-树为例）"><a href="#举例（以3阶-B-树为例）" class="headerlink" title="举例（以3阶 B 树为例）"></a>举例（以3阶 B 树为例）</h3><ul>
+<li>一个节点最多 2 个键，最多有 3 个子节点</li>
+<li>比如节点中有 [10, 20]，它的子树范围：<ul>
+<li>子树1：小于 10</li>
+<li>子树2：10~20</li>
+<li>子树3：大于 20</li>
+</ul>
+</li>
+</ul>
+<h3 id="查找"><a href="#查找" class="headerlink" title="查找"></a>查找</h3><p>和二分查找类似：</p>
+<ul>
+<li>从根节点开始，在节点中查找关键字位置（可以使用二分）</li>
+<li>找不到则沿对应子树向下</li>
+</ul>
+<p>时间复杂度为 O(log n)，<strong>但每一层“跨度大”，所以树的高度更低，查找更快</strong></p>
+<h3 id="插入"><a href="#插入" class="headerlink" title="插入"></a>插入</h3><ul>
+<li>找到插入位置，插入键</li>
+<li>如果节点已满，就<strong>分裂节点</strong>，中间值“上提”到父节点</li>
+<li>插入可能从叶子一路调整到根节点，最多增加一层高度</li>
+</ul>
+<h3 id="删除"><a href="#删除" class="headerlink" title="删除"></a>删除</h3><ul>
+<li>类似 BST，找到值删掉</li>
+<li>如果节点删除后不满足最小关键字数量，就需要<strong>向兄弟借值或合并节点</strong></li>
+<li>复杂度 O(log n)</li>
+</ul>
+<h3 id="应用场景"><a href="#应用场景" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
+<li>MySQL 的 MyISAM 引擎使用的是 <strong>B 树索引</strong></li>
+<li>适合中等范围查询、单点查找、插入删除都频繁的磁盘结构</li>
+</ul>
+<hr>
+<h2 id="B-树（B-Tree-的增强版）"><a href="#B-树（B-Tree-的增强版）" class="headerlink" title="B+ 树（B Tree 的增强版）"></a>B+ 树（B Tree 的增强版）</h2><h3 id="是什么-1"><a href="#是什么-1" class="headerlink" title="是什么"></a>是什么</h3><p>B+ 树是 B 树的一个变种，<strong>所有值都存在叶子节点</strong>，非叶子节点只做“导航”。</p>
+<p><strong>MySQL InnoDB、文件系统、LevelDB 等都使用 B+ 树作为索引结构。</strong></p>
+<h3 id="和-B-树的区别"><a href="#和-B-树的区别" class="headerlink" title="和 B 树的区别"></a>和 B 树的区别</h3><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>B 树</th>
+<th>B+ 树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数据存储</td>
+<td>所有节点存数据</td>
+<td>只有叶子节点存数据</td>
+</tr>
+<tr>
+<td>内部节点</td>
+<td>数据 + 导航</td>
+<td>仅导航（索引）</td>
+</tr>
+<tr>
+<td>查找路径</td>
+<td>可提前终止</td>
+<td>一定走到叶子节点</td>
+</tr>
+<tr>
+<td>范围查询</td>
+<td>差</td>
+<td>强（叶子节点有链表）</td>
+</tr>
+</tbody></table>
+<h3 id="特点-1"><a href="#特点-1" class="headerlink" title="特点"></a>特点</h3><ul>
+<li>所有叶子节点通过链表串起来，方便范围查询</li>
+<li>非叶子节点只做索引，节省空间，<strong>扇出更高，树更矮</strong></li>
+<li>结构更适合磁盘块对齐，减少 IO 次数</li>
+</ul>
+<h3 id="查找-1"><a href="#查找-1" class="headerlink" title="查找"></a>查找</h3><ul>
+<li>和 B 树类似，但一定查到叶子节点才能拿到数据</li>
+<li>路径更统一，便于实现</li>
+</ul>
+<h3 id="范围查询"><a href="#范围查询" class="headerlink" title="范围查询"></a>范围查询</h3><ul>
+<li>特别高效，只需要找到范围起点，然后从链表顺着读下去即可</li>
+</ul>
+<h3 id="应用场景-1"><a href="#应用场景-1" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
+<li><strong>数据库索引（MySQL InnoDB）</strong></li>
+<li><strong>文件系统（如 NTFS, XFS）</strong></li>
+<li>批量范围读取、数据分页、高并发写场景</li>
+</ul>
+<hr>
+<h2 id="跳表（Skip-List）"><a href="#跳表（Skip-List）" class="headerlink" title="跳表（Skip List）"></a>跳表（Skip List）</h2><h3 id="是什么-2"><a href="#是什么-2" class="headerlink" title="是什么"></a>是什么</h3><p>跳表是一种通过在链表上建立多级索引的方式实现快速查找的数据结构。</p>
+<p>你可以理解为：<strong>链表 + 多层快速通道</strong>，是“概率化”实现的平衡树。</p>
+<h3 id="结构"><a href="#结构" class="headerlink" title="结构"></a>结构</h3><ul>
+<li>底层是有序链表（维护所有元素）</li>
+<li>每一层随机选取一些节点参与“快速通道”</li>
+<li>每一层都是下一层的子集，最顶层最稀疏</li>
+</ul>
+<p>比如有 16 个节点，可能层结构像这样：</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">Level 3:      A --------- H</span><br><span class="line">Level 2:      A ---- E -- H -- M</span><br><span class="line">Level 1: A - B - C - D - E - F - G - H - I - ... - P</span><br></pre></td></tr></table></figure>
+
+<h3 id="查找-2"><a href="#查找-2" class="headerlink" title="查找"></a>查找</h3><ul>
+<li>从顶层开始，逐层往下，直到定位到目标位置</li>
+<li>每次跳跃跨度大，大大加快查找速度</li>
+</ul>
+<p>平均时间复杂度：O(log n)</p>
+<h3 id="插入-删除"><a href="#插入-删除" class="headerlink" title="插入 &#x2F; 删除"></a>插入 &#x2F; 删除</h3><ul>
+<li>插入新节点后，按概率决定它会出现在多少层（比如 Redis 是1&#x2F;4 概率上升一层）</li>
+<li>删除也是先找到节点，再清理所有层级中的引用</li>
+</ul>
+<p>时间复杂度：O(log n)</p>
+<h3 id="应用场景-2"><a href="#应用场景-2" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
+<li><strong>Redis 的 zset（有序集合）使用跳表实现</strong></li>
+<li>比树更容易实现，适合内存结构、并发场景</li>
+<li>查找、插入、删除都非常高效</li>
+<li>不需要复杂的旋转、维护，代码比平衡树更简单</li>
+</ul>
+<hr>
+<h2 id="三者对比总结"><a href="#三者对比总结" class="headerlink" title="三者对比总结"></a>三者对比总结</h2><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>B 树</th>
+<th>B+ 树</th>
+<th>跳表</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找效率</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>插入&#x2F;删除</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>O(log n)（更简单）</td>
+</tr>
+<tr>
+<td>是否适合磁盘</td>
+<td>是</td>
+<td>是（最佳）</td>
+<td>否，适合内存</td>
+</tr>
+<tr>
+<td>是否适合范围查询</td>
+<td>一般</td>
+<td>强（链表）</td>
+<td>强（链表）</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>中</td>
+<td>中高</td>
+<td>低（逻辑简单）</td>
+</tr>
+<tr>
+<td>工程应用</td>
+<td>MyISAM索引</td>
+<td>InnoDB索引，文件系统</td>
+<td>Redis zset、有序内存结构</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="总结建议"><a href="#总结建议" class="headerlink" title="总结建议"></a>总结建议</h2><ul>
+<li><strong>数据库磁盘索引</strong>：使用 B+ 树。查找、范围查询快，IO次数少，MySQL&#x2F;Oracle&#x2F;SQLite都用它。</li>
+<li><strong>键值对内存结构（Redis）</strong>：用跳表。简单好用，查找&#x2F;插入性能稳定。</li>
+<li><strong>老的存储结构或小范围索引</strong>：B 树也能用，但现在基本被 B+ 树取代。</li>
+</ul>
+<hr>
+<h2 id="B树和B-树对比"><a href="#B树和B-树对比" class="headerlink" title="B树和B+树对比"></a>B树和B+树对比</h2><ul>
+<li><strong>B树</strong> 和 <strong>B+树</strong> 都是自平衡的多路查找树，它们通过分支节点和数据节点组织数据，确保了对大规模数据的高效查找。</li>
+<li><strong>B+树</strong> 相比于 <strong>B树</strong>，更加高效，特别是在 <strong>范围查询</strong> 和 <strong>顺序访问</strong> 上，因此在数据库和文件系统中，B+树的应用更加广泛。</li>
+<li><strong>B树</strong> 适合需要 <strong>较少的范围查询</strong> 或 <strong>较均衡的查找操作</strong> 的场景，而 <strong>B+树</strong> 更适合 <strong>大规模数据存储、范围查询和顺序扫描</strong> 的场景。</li>
+</ul>
+<hr>
+<h1 id="什么是-AVL-树？"><a href="#什么是-AVL-树？" class="headerlink" title="什么是 AVL 树？"></a>什么是 AVL 树？</h1><p><strong>AVL 树</strong> 是一种 <strong>自平衡的二叉查找树（Binary Search Tree, BST）</strong>，它的全称是：</p>
+<p><strong>Adelson-Velsky and Landis Tree</strong><br>由两位苏联科学家在 1962 年提出，是世界上第一个自平衡二叉查找树。</p>
+<hr>
+<h2 id="AVL-树的核心特性"><a href="#AVL-树的核心特性" class="headerlink" title="AVL 树的核心特性"></a>AVL 树的核心特性</h2><h3 id="自平衡的定义"><a href="#自平衡的定义" class="headerlink" title="自平衡的定义"></a>自平衡的定义</h3><p>对于 <strong>树中的每一个节点</strong>，都必须满足：</p>
+<p><strong>左子树和右子树的高度差 ≤ 1</strong></p>
+<p>这个高度差我们称为该节点的 <strong>平衡因子（Balance Factor）</strong>，它的取值只能是：</p>
+<ul>
+<li>-1（右子树比左子树高一层）</li>
+<li>0（左右等高）</li>
+<li>+1（左子树比右子树高一层）</li>
+</ul>
+<p>一旦插入或删除节点后某个节点的平衡因子超过这个范围（比如变成了 2 或 -2），就需要<strong>通过旋转操作来恢复平衡</strong>。</p>
+<hr>
+<h2 id="为什么需要-AVL-树？"><a href="#为什么需要-AVL-树？" class="headerlink" title="为什么需要 AVL 树？"></a>为什么需要 AVL 树？</h2><p>普通的二叉查找树（BST）在最坏情况下会退化成链表，导致操作效率变为 O(n)。<br>而 AVL 树通过强制控制“平衡因子”，保持<strong>树高度为 O(log n)</strong>，确保：</p>
+<ul>
+<li>查找（Search）</li>
+<li>插入（Insert）</li>
+<li>删除（Delete）</li>
+</ul>
+<p>这些操作都能在对数时间内完成。</p>
+<hr>
+<h2 id="AVL-树的旋转操作"><a href="#AVL-树的旋转操作" class="headerlink" title="AVL 树的旋转操作"></a>AVL 树的旋转操作</h2><h3 id="单旋（Single-Rotation）"><a href="#单旋（Single-Rotation）" class="headerlink" title="单旋（Single Rotation）"></a>单旋（Single Rotation）</h3><ol>
+<li><strong>右旋（Right Rotation）</strong><br>用于左子树过高（LL 失衡）</li>
+<li><strong>左旋（Left Rotation）</strong><br>用于右子树过高（RR 失衡）</li>
+</ol>
+<h3 id="双旋（Double-Rotation）"><a href="#双旋（Double-Rotation）" class="headerlink" title="双旋（Double Rotation）"></a>双旋（Double Rotation）</h3><ol>
+<li><strong>先左旋再右旋（Left-Right Rotation）</strong><br>用于插入到左子树的右子树（LR 型失衡）</li>
+<li><strong>先右旋再左旋（Right-Left Rotation）</strong><br>用于插入到右子树的左子树（RL 型失衡）</li>
+</ol>
+<hr>
+<h2 id="操作复杂度"><a href="#操作复杂度" class="headerlink" title="操作复杂度"></a>操作复杂度</h2><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>时间复杂度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>插入</td>
+<td>O(log n)（可能旋转）</td>
+</tr>
+<tr>
+<td>删除</td>
+<td>O(log n)（可能多次旋转）</td>
+</tr>
+</tbody></table>
+<p>AVL 树高度非常低，接近 log₂(n)，因此查找性能极优。</p>
+<hr>
+<h2 id="示例"><a href="#示例" class="headerlink" title="示例"></a>示例</h2><p>假设我们依次插入以下节点：10 → 20 → 30</p>
+<p>普通 BST 结构变成：</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">10</span><br><span class="line">  \</span><br><span class="line">   20</span><br><span class="line">     \</span><br><span class="line">      30</span><br></pre></td></tr></table></figure>
+
+<p>此时树高度为 3，已经失衡，AVL 会做一次左旋，变成：</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">20</span><br><span class="line">   /  \</span><br><span class="line">  10  30</span><br></pre></td></tr></table></figure>
+
+<p>保持了平衡。</p>
+<hr>
+<h2 id="AVL-树-vs-红黑树"><a href="#AVL-树-vs-红黑树" class="headerlink" title="AVL 树 vs 红黑树"></a>AVL 树 vs 红黑树</h2><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>AVL 树</th>
+<th>红黑树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>平衡程度</td>
+<td>更严格（左右子树高差 ≤ 1）</td>
+<td>较宽松（限制黑节点数目）</td>
+</tr>
+<tr>
+<td>插入&#x2F;删除效率</td>
+<td>较慢，旋转多</td>
+<td>较快，旋转少</td>
+</tr>
+<tr>
+<td>查找效率</td>
+<td>稍快</td>
+<td>稍慢</td>
+</tr>
+<tr>
+<td>实际应用</td>
+<td>内存查找、读多写少</td>
+<td>系统结构、写操作多</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>中</td>
+<td>高</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="适用场景"><a href="#适用场景" class="headerlink" title="适用场景"></a>适用场景</h2><ul>
+<li>查找频率高，插入&#x2F;删除少的场景，如内存中的索引结构</li>
+<li>不适合频繁更新的场景，因为每次插入&#x2F;删除都可能触发旋转</li>
+</ul>
+<hr>
+<h1 id="B树与平衡二叉查找树的对比"><a href="#B树与平衡二叉查找树的对比" class="headerlink" title="B树与平衡二叉查找树的对比"></a>B树与平衡二叉查找树的对比</h1><table>
+<thead>
+<tr>
+<th>特性</th>
+<th><strong>B树</strong></th>
+<th><strong>平衡二叉查找树（如 AVL 树、红黑树）</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>适用场景</strong></td>
+<td>大规模数据存储，尤其是磁盘存储；数据库索引，文件系统管理</td>
+<td>内存中的动态数据存储，集合、映射、优先队列等</td>
+</tr>
+<tr>
+<td><strong>树的结构</strong></td>
+<td>多路树，每个节点有多个子节点</td>
+<td>二叉树，每个节点最多有两个子节点</td>
+</tr>
+<tr>
+<td><strong>查找性能</strong></td>
+<td>O(log n)，但通常更适合磁盘存储，减少磁盘访问次数</td>
+<td>O(log n)，在内存中查找非常高效</td>
+</tr>
+<tr>
+<td><strong>节点大小</strong></td>
+<td>每个节点包含多个键和多个子指针，适合减少磁盘访问次数</td>
+<td>每个节点只包含一个键和最多两个子指针</td>
+</tr>
+<tr>
+<td><strong>插入&#x2F;删除操作</strong></td>
+<td>节点分裂&#x2F;合并，通常需要更复杂的操作来保持平衡</td>
+<td>旋转操作，通过保持平衡因子来保证平衡</td>
+</tr>
+<tr>
+<td><strong>支持范围查询</strong></td>
+<td>非常高效，能够快速查找和遍历范围数据</td>
+<td>支持范围查询，但对于大量范围查询不如 B 树高效</td>
+</tr>
+<tr>
+<td><strong>内存与存储</strong></td>
+<td>适合外存存储，能高效处理大量数据</td>
+<td>适用于内存数据管理，数据规模适中，内存存储</td>
+</tr>
+</tbody></table>
+]]></content>
+      <tags>
+        <tag>数据结构</tag>
+      </tags>
+  </entry>
+</search>
