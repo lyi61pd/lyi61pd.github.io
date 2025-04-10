@@ -65,7 +65,7 @@
   </url>
   
   <url>
-    <loc>https://lyi61pd.github.io/tags/</loc>
+    <loc>https://lyi61pd.github.io/talk/</loc>
     
     <lastmod>2025-04-10</lastmod>
     
@@ -74,7 +74,7 @@
   </url>
   
   <url>
-    <loc>https://lyi61pd.github.io/talk/</loc>
+    <loc>https://lyi61pd.github.io/tags/</loc>
     
     <lastmod>2025-04-10</lastmod>
     
@@ -90,6 +90,13 @@
     <priority>1.0</priority>
   </url>
 
+  
+  <url>
+    <loc>https://lyi61pd.github.io/tags/%E9%97%B2%E8%AF%9D/</loc>
+    <lastmod>2025-04-10</lastmod>
+    <changefreq>weekly</changefreq>
+    <priority>0.2</priority>
+  </url>
   
   <url>
     <loc>https://lyi61pd.github.io/tags/C2/</loc>
@@ -120,7 +127,7 @@
   </url>
   
   <url>
-    <loc>https://lyi61pd.github.io/tags/%E9%97%B2%E8%AF%9D/</loc>
+    <loc>https://lyi61pd.github.io/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/</loc>
     <lastmod>2025-04-10</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
@@ -128,13 +135,6 @@
   
   <url>
     <loc>https://lyi61pd.github.io/tags/Redis/</loc>
-    <lastmod>2025-04-10</lastmod>
-    <changefreq>weekly</changefreq>
-    <priority>0.2</priority>
-  </url>
-  
-  <url>
-    <loc>https://lyi61pd.github.io/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/</loc>
     <lastmod>2025-04-10</lastmod>
     <changefreq>weekly</changefreq>
     <priority>0.2</priority>
