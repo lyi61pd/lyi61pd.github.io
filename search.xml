@@ -1,18 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
 <search>
   <entry>
-    <title>Hey, there~</title>
-    <url>/2025/03/18/%E4%BB%8B%E7%BB%8D/</url>
-    <content><![CDATA[<h1 id="介绍"><a href="#介绍" class="headerlink" title="介绍"></a>介绍</h1><p>Hey, there~</p>
-<p>使用的 <code>hexo</code> + <code>butterfly</code> 生成的静态页面,部署在 Github 个人主页</p>
-<p>之后应该会记录一些自己的学习笔记</p>
-<p>主要学习和工作方向是安全研发,但是目前工作内容很杂,因此记录的内容也会涉及不同的领域</p>
-]]></content>
-      <tags>
-        <tag>闲话</tag>
-      </tags>
-  </entry>
-  <entry>
     <title>C2</title>
     <url>/2025/04/08/C2/</url>
     <content><![CDATA[<h1 id="C2基础"><a href="#C2基础" class="headerlink" title="C2基础"></a>C2基础</h1><h2 id="什么是-C2-框架"><a href="#什么是-C2-框架" class="headerlink" title="什么是 C2 框架"></a>什么是 C2 框架</h2><p>C2（Command &amp; Control）框架是攻击链中控制阶段的核心部分，用于红队与植入目标主机的木马（Agent&#x2F;Beacon）之间建立通信，执行命令、收集信息、上传下载文件、做横向移动等等。C2 框架的本质是一套包含控制端（Server）与客户端（Payload&#x2F;Beacon）的通信系统。</p>
@@ -1016,6 +1004,590 @@
       </tags>
   </entry>
   <entry>
+    <title>Clickhouse</title>
+    <url>/2025/04/11/Clickhouse/</url>
+    <content><![CDATA[<h1 id="ClickHouse的架构与设计理念"><a href="#ClickHouse的架构与设计理念" class="headerlink" title="ClickHouse的架构与设计理念"></a>ClickHouse的架构与设计理念</h1><h2 id="ClickHouse的整体架构概览"><a href="#ClickHouse的整体架构概览" class="headerlink" title="ClickHouse的整体架构概览"></a>ClickHouse的整体架构概览</h2><p>ClickHouse 是一个开源的列式数据库，由 Yandex 开发，专为 <strong>在线分析处理（OLAP）</strong> 场景而设计。它的架构设计强调 <strong>高吞吐、低延迟</strong> 和 <strong>可横向扩展</strong>。</p>
+<p><strong>架构核心组件</strong></p>
+<ol>
+<li><strong>Server 节点</strong><ul>
+<li>ClickHouse 的基本运行单位是一个服务进程（通常是一个 <code>clickhouse-server</code> 实例），它负责处理客户端请求、执行查询、管理存储等。</li>
+</ul>
+</li>
+<li><strong>表引擎（Table Engines）</strong><ul>
+<li>表的存储和管理依赖引擎，最核心的是 <strong>MergeTree</strong> 及其衍生类型（如 ReplacingMergeTree、SummingMergeTree）。</li>
+<li>每种引擎定义了数据如何存储、如何合并、如何处理TTL等规则。</li>
+</ul>
+</li>
+<li><strong>查询引擎（Query Processor）</strong><ul>
+<li>查询经过解析器 → 分析器 → 优化器 → 执行器的层层处理。</li>
+<li>查询最终会被向量化处理，高效执行。</li>
+</ul>
+</li>
+<li><strong>分布式支持</strong><ul>
+<li>通过 <code>Distributed</code> 表引擎实现横向扩展，支持分布式存储与查询。</li>
+<li>使用 <code>ZooKeeper</code> 协调副本、分片、故障恢复。</li>
+</ul>
+</li>
+<li><strong>系统表（system. 系列）</strong><ul>
+<li>ClickHouse内部维护了大量系统表，可用于监控、诊断、调优。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="列式数据库的设计理念与优势"><a href="#列式数据库的设计理念与优势" class="headerlink" title="列式数据库的设计理念与优势"></a>列式数据库的设计理念与优势</h2><p>ClickHouse 是列式存储的数据库，这意味着它将每一列的数据单独存储在磁盘上，而不是传统行式数据库那样按行存储。</p>
+<p><strong>优势包括：</strong></p>
+<ul>
+<li><strong>更高的压缩率</strong>：同一列中的数据类型一致，便于压缩算法发挥最大效能。</li>
+<li><strong>更快的读取速度</strong>：只读取查询涉及的列，IO 开销极低。</li>
+<li><strong>高效的向量化计算</strong>：将列数据作为批处理单位，提升 CPU 使用效率。</li>
+</ul>
+<hr>
+<h2 id="MergeTree-表引擎基础概念"><a href="#MergeTree-表引擎基础概念" class="headerlink" title="MergeTree 表引擎基础概念"></a>MergeTree 表引擎基础概念</h2><p>MergeTree 是 ClickHouse 中最重要的表引擎，几乎所有的功能（如排序键、TTL、物化视图）都建立在它之上。</p>
+<p><strong>核心特性：</strong></p>
+<ul>
+<li><strong>分区（partition by）</strong>：将数据按照某个维度分区管理，提高查询效率与数据管理灵活性。</li>
+<li><strong>主键（order by）</strong>：数据在写入时按照主键进行有序组织，支持范围查找和跳跃索引,。</li>
+<li><strong>数据分片（parts）</strong>：数据不是整体存储，而是以“Part”为单位增量写入。</li>
+<li><strong>后台合并（Merge）</strong>：ClickHouse定期将小的Part合并为大的Part，优化读取性能和空间利用率。</li>
+</ul>
+<hr>
+<h1 id="Clickhouse的主键与Mysql的主键的区别"><a href="#Clickhouse的主键与Mysql的主键的区别" class="headerlink" title="Clickhouse的主键与Mysql的主键的区别"></a>Clickhouse的主键与Mysql的主键的区别</h1><p>在 <strong>ClickHouse</strong> 和 <strong>MySQL</strong> 中，主键的概念有所不同，因为这两个数据库系统的设计目标和架构有所区别。虽然两者的主键都用于唯一标识记录，但它们的实现方式和作用有所不同。</p>
+<h2 id="MySQL-主键"><a href="#MySQL-主键" class="headerlink" title="MySQL 主键"></a>MySQL 主键</h2><ol>
+<li><strong>定义</strong>：<ul>
+<li>在 <strong>MySQL</strong> 中，主键是一个或多个列的组合，用于唯一标识表中的每一行记录。主键必须是唯一的，并且不能为 <strong>NULL</strong>。</li>
+</ul>
+</li>
+<li><strong>存储与索引</strong>：<ul>
+<li>在 <strong>MySQL</strong> 中，主键不仅是唯一标识符，它还会自动创建一个 <strong>聚簇索引（Clustered Index）</strong>。这意味着数据行会按照主键的顺序存储在磁盘上，主键的顺序决定了物理存储的顺序。</li>
+<li>如果主键由多个列组成，那么这些列的组合会共同决定记录在数据库中的存储顺序。</li>
+</ul>
+</li>
+<li><strong>索引类型</strong>：<ul>
+<li>MySQL 的主键通常是基于 <strong>B+树索引</strong>，适合高效的范围查询和单个记录的查找。B+树索引使得在查找时可以快速定位到对应的行。</li>
+</ul>
+</li>
+<li><strong>作用</strong>：<ul>
+<li><strong>唯一性</strong>：主键确保每一行数据在表中的唯一性。</li>
+<li><strong>查询效率</strong>：由于主键是聚簇索引，它可以显著提高查询性能，尤其是通过主键查找记录时。</li>
+</ul>
+</li>
+</ol>
+<h2 id="ClickHouse-主键"><a href="#ClickHouse-主键" class="headerlink" title="ClickHouse 主键"></a>ClickHouse 主键</h2><ol>
+<li><strong>定义</strong>：<ul>
+<li>在 <strong>ClickHouse</strong> 中，主键并不像传统数据库（如 MySQL）那样是唯一约束的索引。ClickHouse 的主键主要用于数据的 <strong>排序</strong>，而不是用于唯一性约束。</li>
+<li>主键是通过 <code>ORDER BY</code> 子句定义的，用来指定数据在存储时的排序顺序。数据并不要求唯一，主键更多的是决定存储方式，以优化查询性能。</li>
+</ul>
+</li>
+<li><strong>存储与索引</strong>：<ul>
+<li>在 <strong>ClickHouse</strong> 中，表中的数据并不按主键的顺序存储，而是按照 <strong>MergeTree</strong> 引擎的排序规则存储。通过主键指定的排序列决定了数据的 <strong>物理存储顺序</strong>，这有助于优化按这些列进行的查询。</li>
+<li><strong>ClickHouse</strong> 的主键不会像 MySQL 那样创建聚簇索引。ClickHouse 的 <strong>MergeTree</strong> 引擎使用 <strong>数据部分（parts）</strong> 来存储数据，并通过索引文件（primary key index）来加速查询。</li>
+</ul>
+</li>
+<li><strong>索引类型</strong>：<ul>
+<li><strong>ClickHouse</strong> 使用的是 <strong>稀疏索引</strong>（Sparse Index），它与 B+ 树的传统索引不同。ClickHouse 通过在数据块中存储列的最小值和最大值来构建索引，以优化范围查询。主键定义了如何在这些数据块中进行查询和定位。</li>
+</ul>
+</li>
+<li><strong>作用</strong>：<ul>
+<li><strong>排序优化</strong>：主键的定义帮助 ClickHouse 对数据进行排序，这对于按排序列进行的范围查询非常有效。</li>
+<li><strong>没有唯一性约束</strong>：与 MySQL 的主键不同，ClickHouse 中的主键并不强制保证唯一性，它仅用于优化查询。</li>
+<li><strong>性能优化</strong>：主键列通常是查询中常用的列，特别是当这些列用于 <code>ORDER BY</code> 或 <code>WHERE</code> 子句时，排序和索引能够大幅提升查询性能。</li>
+</ul>
+</li>
+</ol>
+<h2 id="主要区别"><a href="#主要区别" class="headerlink" title="主要区别"></a>主要区别</h2><ol>
+<li><strong>唯一性</strong>：<ul>
+<li><strong>MySQL</strong>：主键必须唯一，并且每个表只能有一个主键。</li>
+<li><strong>ClickHouse</strong>：主键不保证唯一性，它只用于数据的排序优化，不强制要求唯一。</li>
+</ul>
+</li>
+<li><strong>物理存储</strong>：<ul>
+<li><strong>MySQL</strong>：主键对应的列会影响物理存储顺序，因为主键是聚簇索引，数据行存储的顺序与主键顺序一致。</li>
+<li><strong>ClickHouse</strong>：主键影响数据的排序顺序，但不控制数据的物理存储顺序。主键只是优化查询的一个手段，数据本身并不要求按照主键排序存储。</li>
+</ul>
+</li>
+<li><strong>索引结构</strong>：<ul>
+<li><strong>MySQL</strong>：主键使用<strong>聚簇索引</strong>，基于 B+ 树，适用于范围查询和精确查找。</li>
+<li><strong>ClickHouse</strong>：主键使用<strong>稀疏索引</strong>，并通过 <code>MergeTree</code> 引擎优化数据分布，更多的是用于查询优化而不是唯一性验证。</li>
+</ul>
+</li>
+<li><strong>查询性能</strong>：<ul>
+<li><strong>MySQL</strong>：由于主键的聚簇索引，MySQL 对主键相关查询非常高效，特别是精确查找。</li>
+<li><strong>ClickHouse</strong>：主键通过控制数据的物理排序来优化范围查询和批量数据访问，特别是在按主键排序的查询中，性能有显著提升。</li>
+</ul>
+</li>
+</ol>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li><strong>MySQL</strong> 的主键主要是用来保证数据的唯一性，并且通过聚簇索引加速查询。</li>
+<li><strong>ClickHouse</strong> 的主键并不要求唯一性，而是主要用于 <strong>数据排序</strong> 和 <strong>查询优化</strong>，特别是在使用 <code>MergeTree</code> 引擎时，通过主键来定义数据的存储顺序，优化范围查询。</li>
+</ul>
+<hr>
+<h1 id="底层数据结构"><a href="#底层数据结构" class="headerlink" title="底层数据结构"></a>底层数据结构</h1><h2 id="ClickHouse-的列式存储格式"><a href="#ClickHouse-的列式存储格式" class="headerlink" title="ClickHouse 的列式存储格式"></a>ClickHouse 的列式存储格式</h2><p>ClickHouse 是原生的列式数据库，它将每一列的数据单独存储为多个文件，而不是一整行。</p>
+<hr>
+<p><strong>每列的数据存储结构</strong></p>
+<p>对于每个字段，ClickHouse 可能生成如下几种文件（以 MergeTree 表为例）：</p>
+<ul>
+<li><code>.bin</code>（或无后缀）：列的实际数据文件（经过编码与压缩）</li>
+<li><code>.mrk3</code>：<strong>mark文件</strong>，用于快速定位数据块中的位置</li>
+<li><code>.idx</code>（bitmap索引等引擎特有）：</li>
+<li><code>.default</code>：记录 default 表达式结果（如果有）</li>
+</ul>
+<p>这些文件按列存储，并以 <strong>part</strong> 为单位组织在磁盘上。每个 part 包含所有列的若干数据段。</p>
+<hr>
+<h2 id="数据组织单位：Part"><a href="#数据组织单位：Part" class="headerlink" title="数据组织单位：Part"></a>数据组织单位：Part</h2><p>ClickHouse 的写入不是直接追加数据，而是每次写入都会生成一个新的 <strong>Part</strong>。</p>
+<hr>
+<p><strong>Part 的核心特点：</strong></p>
+<ul>
+<li>是不可变的（immutable）</li>
+<li>存储在磁盘上一个独立的目录中</li>
+<li>包含分区信息、索引、数据列文件、元数据文件</li>
+<li>文件结构：</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">all_0_0_0/</span><br><span class="line">  columns.txt</span><br><span class="line">  primary.idx</span><br><span class="line">  checksums.txt</span><br><span class="line">  data/</span><br><span class="line">    column1.bin, column1.mrk3</span><br><span class="line">    column2.bin, column2.mrk3</span><br></pre></td></tr></table></figure>
+
+<hr>
+<p><strong>Part 的命名结构：</strong></p>
+<p>格式为 <code>&#123;partition&#125;_&#123;min_block&#125;_&#123;max_block&#125;_&#123;level&#125;</code>，例如：</p>
+<ul>
+<li><code>202404_1_10_1</code> 表示：<ul>
+<li>分区是 202404</li>
+<li>包含的块号是从1到10</li>
+<li>合并层级为1</li>
+</ul>
+</li>
+</ul>
+<p>ClickHouse 会通过后台合并机制把多个 Part 合并成一个更大的 Part，减少碎片、优化查询。</p>
+<hr>
+<h2 id="主键与索引机制"><a href="#主键与索引机制" class="headerlink" title="主键与索引机制"></a>主键与索引机制</h2><p>ClickHouse 的主键不是唯一性约束，而是<strong>数据的物理排序依据</strong>，用于范围查找优化。</p>
+<h3 id="主键索引（primary-idx）"><a href="#主键索引（primary-idx）" class="headerlink" title="主键索引（primary.idx）"></a>主键索引（primary.idx）</h3><ul>
+<li>以每 <code>N</code> 行（默认8192）为一个数据块，对主键字段建立 min&#x2F;max 索引。</li>
+<li>存储在 <code>primary.idx</code> 中，每个 entry 对应一段数据的起始位置。</li>
+<li>查询时可快速跳过不匹配的数据块（称为 <strong>粗粒度索引</strong>）。</li>
+</ul>
+<h3 id="Skip-Index（二级索引）"><a href="#Skip-Index（二级索引）" class="headerlink" title="Skip Index（二级索引）"></a>Skip Index（二级索引）</h3><p>ClickHouse 还支持一些可选的辅助索引，用于跳过数据块：</p>
+<ul>
+<li><code>minmax</code>（最常用）：为某列记录每块的 min&#x2F;max</li>
+<li><code>set</code>：记录块中出现过的值集合</li>
+<li><code>bloom_filter</code>：用于模糊匹配</li>
+<li><code>ngrambf_v1</code>：支持 LIKE ‘%xxx%’ 模糊匹配优化</li>
+</ul>
+<p>这些索引不会影响写入，但能显著提升过滤性能。</p>
+<hr>
+<h2 id="数据压缩与编码策略"><a href="#数据压缩与编码策略" class="headerlink" title="数据压缩与编码策略"></a>数据压缩与编码策略</h2><p>ClickHouse 支持非常高效的压缩机制，是其性能的关键之一。</p>
+<h3 id="压缩流程："><a href="#压缩流程：" class="headerlink" title="压缩流程："></a>压缩流程：</h3><ol>
+<li>每列数据按 block 写入（默认最大64KB）</li>
+<li>每个 block 使用 LZ4（或 ZSTD）压缩</li>
+<li>某些数据类型还会使用 <strong>特殊编码策略</strong>：<ul>
+<li>整型：Delta 编码、Gorilla 编码</li>
+<li>字符串：Dictionary 编码</li>
+<li>Nullable：使用 bitmap 分离空值位图</li>
+<li>LowCardinality：将字符串字段转为整数字典引用</li>
+</ul>
+</li>
+</ol>
+<p>压缩率常常达到 5～10 倍，远高于行式数据库。</p>
+<hr>
+<h2 id="分区（Partition）与分片（Shard）"><a href="#分区（Partition）与分片（Shard）" class="headerlink" title="分区（Partition）与分片（Shard）"></a>分区（Partition）与分片（Shard）</h2><p>ClickHouse 将数据分为多个 <strong>分区（partition）</strong>，每个分区下有多个 part。</p>
+<ul>
+<li>分区是逻辑组织单位，如按月、按日划分。</li>
+<li>写入新分区的数据不会触发旧分区的合并。</li>
+<li>分区字段常设为 <code>toYYYYMM(date)</code> 形式。</li>
+</ul>
+<p>**分片（shard）**则是跨节点水平分布的数据副本，属于分布式部署概念，不直接影响本地数据结构。分片主要用于 <strong>水平扩展</strong>（Horizontal Scaling），通过将数据分布到不同的节点，来支持大规模数据的处理和存储。<strong>分片</strong> 是水平划分的，每个分片存储整个表的一部分数据，通常是按某种规则（如 <code>Hash</code> 或范围划分）将数据均匀分布到多个节点</p>
+<p><strong>分片的特性</strong></p>
+<ol>
+<li><strong>跨节点分布</strong>：<ul>
+<li>分片是 <strong>跨多个节点的数据分布</strong>，通常是为了提高系统的容量和处理能力。每个节点存储数据的一部分，这些部分被称为 <strong>分片</strong>（shard）。</li>
+<li><strong>分片</strong> 是水平划分的，每个分片存储整个表的一部分数据，通常是按某种规则（如 <code>Hash</code> 或范围划分）将数据均匀分布到多个节点。</li>
+</ul>
+</li>
+<li><strong>数据副本（Replica）</strong>：<ul>
+<li><strong>分片</strong> 和 <strong>副本</strong> 是分布式部署的核心概念。每个分片通常会有一个或多个 <strong>副本</strong>，副本用于容错和高可用性。当一个节点或分片出现故障时，系统可以自动从副本中恢复数据，保证服务的可用性。</li>
+<li>副本通常是分布式表的一部分，每个副本存储与其他副本相同的数据，但存储在不同的节点上。</li>
+</ul>
+</li>
+<li><strong>分片和查询</strong>：<ul>
+<li>当查询是针对整个表进行的，<code>Distributed</code> 引擎会自动将查询请求分发到相应的分片节点。分片负责处理本地数据并返回查询结果。</li>
+<li>通过使用分片，ClickHouse 能够支持大规模数据集的分布式查询，避免单节点过载，同时提高查询吞吐量。</li>
+</ul>
+</li>
+</ol>
+<hr>
+<h2 id="TTL-与数据生命周期"><a href="#TTL-与数据生命周期" class="headerlink" title="TTL 与数据生命周期"></a>TTL 与数据生命周期</h2><p>ClickHouse 支持在表级或字段级设置 TTL，用于自动删除或移动数据。</p>
+<p>例如：</p>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line">TTL event_time <span class="operator">+</span> <span class="type">INTERVAL</span> <span class="number">30</span> <span class="keyword">DAY</span> <span class="keyword">DELETE</span></span><br></pre></td></tr></table></figure>
+
+<p>执行原理：</p>
+<ul>
+<li>ClickHouse 后台定时任务扫描符合 TTL 条件的数据块</li>
+<li>构造新的 Part（删除或迁移）</li>
+<li>替换旧 Part，旧数据自动清理</li>
+</ul>
+<p>这一机制也依赖 Part 的不可变性与自动合并能力。</p>
+<hr>
+<h2 id="小结"><a href="#小结" class="headerlink" title="小结"></a>小结</h2><ul>
+<li>数据是以列为单位存储在磁盘上的，每列有自己的 <code>.bin</code> 和 <code>.mrk3</code> 文件。</li>
+<li>数据写入生成不可变的 Part，后台进行合并优化。</li>
+<li>主键索引和辅助索引实现了高效的数据跳过（跳跃式扫描）。</li>
+<li>压缩、编码机制帮助 ClickHouse 在磁盘和内存间取得性能平衡。</li>
+<li>Partition 逻辑管理数据生命周期与并发写入。</li>
+<li>TTL 自动清理机制基于 Part 和合并逻辑运行。</li>
+</ul>
+<hr>
+<h1 id="分布式查询执行机制"><a href="#分布式查询执行机制" class="headerlink" title="分布式查询执行机制"></a>分布式查询执行机制</h1><p>当查询一个 <code>Distributed</code> 表时：</p>
+<ul>
+<li>查询在本地生成逻辑执行计划</li>
+<li>然后分发到每个分片的本地 MergeTree 表执行</li>
+<li>每个分片执行完返回结果，主节点进行 <strong>Merge&#x2F;Aggregate</strong></li>
+</ul>
+<p>ClickHouse 会自动判断是否进行 <strong>聚合下推</strong>、<strong>过滤下推</strong>，从而减少跨网络传输。</p>
+<hr>
+<h1 id="存储引擎与文件系统交互机制"><a href="#存储引擎与文件系统交互机制" class="headerlink" title="存储引擎与文件系统交互机制"></a>存储引擎与文件系统交互机制</h1><h2 id="MergeTree-表引擎的核心机制"><a href="#MergeTree-表引擎的核心机制" class="headerlink" title="MergeTree 表引擎的核心机制"></a>MergeTree 表引擎的核心机制</h2><p>MergeTree 是 ClickHouse 中最重要、最通用的表引擎。它支持有序写入、延迟合并、高效读取、TTL 清理等机制。</p>
+<p><strong>设计目标</strong></p>
+<ul>
+<li><strong>高并发写入（append-only + 异步合并）</strong></li>
+<li><strong>快速查询（主键索引 + mark 跳跃）</strong></li>
+<li><strong>灵活数据管理（分区、TTL、物化视图）</strong></li>
+</ul>
+<p>MergeTree 是列式、不可变、基于 LSM 思路的引擎，但不同于 RocksDB 那种 key-value 模型，它以 block 和 column 为单位组织数据。</p>
+<hr>
+<h2 id="数据写入流程详解"><a href="#数据写入流程详解" class="headerlink" title="数据写入流程详解"></a>数据写入流程详解</h2><ol>
+<li><strong>写入内存</strong><ul>
+<li>接收 insert 数据，形成内存中的 <code>Block</code></li>
+</ul>
+</li>
+<li><strong>数据编码 + 压缩</strong><ul>
+<li>对每列进行编码、压缩处理</li>
+</ul>
+</li>
+<li><strong>落盘成 Part</strong><ul>
+<li>每次 insert 都生成一个新的 <code>Part</code>，保存在磁盘上一个独立目录中</li>
+</ul>
+</li>
+<li><strong>更新元数据</strong><ul>
+<li>包括 <code>columns.txt</code>, <code>checksums.txt</code>, <code>partition.dat</code>, <code>count.txt</code></li>
+<li>同时更新主键索引文件（如 <code>primary.idx</code>）</li>
+</ul>
+</li>
+</ol>
+<p>写入流程采用批量式写入 + 不可变数据块，避免了行级锁和复杂并发控制。</p>
+<hr>
+<h2 id="磁盘文件结构"><a href="#磁盘文件结构" class="headerlink" title="磁盘文件结构"></a>磁盘文件结构</h2><p>每个 Part 的文件组织如下：</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">202404_1_10_1/</span><br><span class="line">├── columns.txt         -- 记录所有字段</span><br><span class="line">├── checksums.txt       -- 所有文件校验信息</span><br><span class="line">├── count.txt           -- 行数</span><br><span class="line">├── partition.dat       -- 分区值</span><br><span class="line">├── primary.idx         -- 主键索引（粗粒度）</span><br><span class="line">├── column1.bin         -- 实际数据（压缩编码后）</span><br><span class="line">├── column1.mrk3        -- mark 文件（跳跃索引）</span><br><span class="line">├── ...</span><br></pre></td></tr></table></figure>
+
+<p>每列对应两个文件：</p>
+<ul>
+<li><code>.bin</code>：压缩列数据</li>
+<li><code>.mrk3</code>：跳跃索引（每 N 行标记偏移）</li>
+</ul>
+<p>这种结构易于横向扩展（按列、按分区）和快速定位。</p>
+<hr>
+<h2 id="mark-文件的作用"><a href="#mark-文件的作用" class="headerlink" title="mark 文件的作用"></a>mark 文件的作用</h2><p>Mark 文件（<code>.mrk3</code>）用于支持 <strong>跳跃式扫描</strong>，原理是：</p>
+<ul>
+<li>每隔 N 行记录一个 “mark”</li>
+<li>每个 mark 保存当前列文件偏移位置（如偏移量、压缩块内位置）</li>
+<li>查询时可快速 seek 到指定 mark，避免线性扫描</li>
+</ul>
+<p>默认一个 mark 间隔 8192 行（可调），决定了 I&#x2F;O 粒度和内存消耗的权衡。</p>
+<hr>
+<h2 id="Part-的合并（Merge）机制"><a href="#Part-的合并（Merge）机制" class="headerlink" title="Part 的合并（Merge）机制"></a>Part 的合并（Merge）机制</h2><p>为了防止磁盘碎片和读取效率下降，ClickHouse 会定期触发后台合并任务。</p>
+<h3 id="合并流程："><a href="#合并流程：" class="headerlink" title="合并流程："></a>合并流程：</h3><ol>
+<li>挑选多个小 Part（同一分区内）</li>
+<li>解压 + 解码后 merge 成一个大 Part</li>
+<li>重新编码、压缩、写入新文件</li>
+<li>替换旧 Part，更新元数据</li>
+</ol>
+<p>合并采用多线程并发执行，支持 IO 限速、按策略排序（如 TTL 优先、大小优先）</p>
+<p>可通过 <code>system.merges</code> 观察合并状态。</p>
+<hr>
+<h2 id="磁盘空间策略（Disk-Volume）"><a href="#磁盘空间策略（Disk-Volume）" class="headerlink" title="磁盘空间策略（Disk &amp; Volume）"></a>磁盘空间策略（Disk &amp; Volume）</h2><p>ClickHouse 从 v20+ 支持将数据分布在多个磁盘&#x2F;目录上。</p>
+<h3 id="存储策略（StoragePolicy）"><a href="#存储策略（StoragePolicy）" class="headerlink" title="存储策略（StoragePolicy）"></a>存储策略（StoragePolicy）</h3><p>通过定义 <code>Disk</code>, <code>Volume</code>, <code>StoragePolicy</code>：</p>
+<figure class="highlight xml"><table><tr><td class="code"><pre><span class="line"><span class="tag">&lt;<span class="name">storage_configuration</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">disks</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">disk1</span>&gt;</span></span><br><span class="line">      <span class="tag">&lt;<span class="name">path</span>&gt;</span>/var/lib/clickhouse/disk1/<span class="tag">&lt;/<span class="name">path</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">disk1</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">disk2</span>&gt;</span></span><br><span class="line">      <span class="tag">&lt;<span class="name">path</span>&gt;</span>/mnt/nvme/<span class="tag">&lt;/<span class="name">path</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">disk2</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">disks</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;<span class="name">policies</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;<span class="name">hot_to_cold</span>&gt;</span></span><br><span class="line">      <span class="tag">&lt;<span class="name">volumes</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">hot</span>&gt;</span></span><br><span class="line">          <span class="tag">&lt;<span class="name">disk</span>&gt;</span>disk1<span class="tag">&lt;/<span class="name">disk</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;/<span class="name">hot</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;<span class="name">cold</span>&gt;</span></span><br><span class="line">          <span class="tag">&lt;<span class="name">disk</span>&gt;</span>disk2<span class="tag">&lt;/<span class="name">disk</span>&gt;</span></span><br><span class="line">        <span class="tag">&lt;/<span class="name">cold</span>&gt;</span></span><br><span class="line">      <span class="tag">&lt;/<span class="name">volumes</span>&gt;</span></span><br><span class="line">    <span class="tag">&lt;/<span class="name">hot_to_cold</span>&gt;</span></span><br><span class="line">  <span class="tag">&lt;/<span class="name">policies</span>&gt;</span></span><br><span class="line"><span class="tag">&lt;/<span class="name">storage_configuration</span>&gt;</span></span><br></pre></td></tr></table></figure>
+
+<p>可以实现：</p>
+<ul>
+<li>热数据存 NVMe，冷数据归档到 SATA</li>
+<li>配合 TTL 进行分级迁移</li>
+</ul>
+<hr>
+<h2 id="缓存机制（Mark-Cache、Uncompressed-Cache）"><a href="#缓存机制（Mark-Cache、Uncompressed-Cache）" class="headerlink" title="缓存机制（Mark Cache、Uncompressed Cache）"></a>缓存机制（Mark Cache、Uncompressed Cache）</h2><p>ClickHouse 为提高查询性能，设计了两级缓存：</p>
+<ul>
+<li><strong>Mark Cache（默认2GB）</strong><ul>
+<li>缓存 mark 文件（跳跃索引），避免频繁读取 <code>.mrk3</code></li>
+<li>作用：快速定位数据位置</li>
+</ul>
+</li>
+<li><strong>Uncompressed Cache（默认8GB）</strong><ul>
+<li>缓存解压后的数据块（Block）</li>
+<li>作用：避免重复解压、提高重复查询速度</li>
+</ul>
+</li>
+</ul>
+<p>这两个缓存都驻留内存，可通过配置调整大小，适当扩大可明显提升查询性能。</p>
+<hr>
+<h2 id="其他存储优化技术"><a href="#其他存储优化技术" class="headerlink" title="其他存储优化技术"></a>其他存储优化技术</h2><ul>
+<li><strong>Zero Copy Replication</strong>：副本之间通过共享存储（如 S3、NFS）进行数据同步，避免拷贝</li>
+<li><strong>分区裁剪</strong>：查询时自动忽略无关分区，减少读取</li>
+<li><strong>Compact Part</strong>：小文件写入场景下启用“紧凑格式”Part，适合日志写入</li>
+<li><strong>TTL MOVE TO DISK</strong>：数据分层迁移 + 自动清理</li>
+</ul>
+<hr>
+<h2 id="小结-1"><a href="#小结-1" class="headerlink" title="小结"></a>小结</h2><ul>
+<li>MergeTree 的核心机制基于 Part，不可变、易合并、列存</li>
+<li>Part 文件结构详尽：数据 + 索引 + 校验 + 元数据</li>
+<li>mark 索引为跳跃式扫描提供支持</li>
+<li>后台合并优化性能、释放空间</li>
+<li>多磁盘策略与缓存机制提升资源利用效率</li>
+</ul>
+<hr>
+<h1 id="实战分析与源码学习"><a href="#实战分析与源码学习" class="headerlink" title="实战分析与源码学习"></a><strong>实战分析与源码学习</strong></h1><h2 id="系统表分析"><a href="#系统表分析" class="headerlink" title="系统表分析"></a>系统表分析</h2><p>ClickHouse 提供大量以 <code>system.</code> 开头的系统表用于实时观察数据库内部状态，非常适合用于：</p>
+<ul>
+<li>查询调优</li>
+<li>瓶颈定位</li>
+<li>资源消耗监控</li>
+<li>数据合并与副本同步监控</li>
+</ul>
+<hr>
+<p><strong>常用系统表</strong></p>
+<table>
+<thead>
+<tr>
+<th>表名</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>system.parts</code></td>
+<td>查看表中各个 Part 的信息（大小、状态、压缩率等）</td>
+</tr>
+<tr>
+<td><code>system.merges</code></td>
+<td>当前正在进行的合并任务</td>
+</tr>
+<tr>
+<td><code>system.replication_queue</code></td>
+<td>副本同步队列，观察主从同步延迟</td>
+</tr>
+<tr>
+<td><code>system.processes</code></td>
+<td>当前正在执行的查询及其资源消耗</td>
+</tr>
+<tr>
+<td><code>system.query_log</code></td>
+<td>所有历史查询的执行日志（可配置保存时间）</td>
+</tr>
+<tr>
+<td><code>system.text_log</code></td>
+<td>ClickHouse 后台运行日志</td>
+</tr>
+<tr>
+<td><code>system.metrics</code></td>
+<td>实时系统性能指标，如内存、线程、cache 命中率</td>
+</tr>
+<tr>
+<td><code>system.events</code></td>
+<td>查询过程中触发的事件统计，例如 <code>SelectedParts</code>, <code>SelectedRows</code></td>
+</tr>
+<tr>
+<td><code>system.trace_log</code></td>
+<td>CPU 栈追踪信息（用于定位复杂查询中的热点函数）</td>
+</tr>
+</tbody></table>
+<p>通过结合 <code>EXPLAIN</code> 和 <code>system.query_log</code>，可以完整还原一次查询的执行过程。</p>
+<hr>
+<h2 id="查询慢的问题定位思路"><a href="#查询慢的问题定位思路" class="headerlink" title="查询慢的问题定位思路"></a><strong>查询慢的问题定位思路</strong></h2><ol>
+<li><strong>分析查询计划</strong></li>
+</ol>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line">EXPLAIN PLAN <span class="keyword">SELECT</span> ...</span><br></pre></td></tr></table></figure>
+
+<p>查看是否存在全表扫描、JOIN 不走索引、聚合位置错误等。</p>
+<ol start="2">
+<li><strong>查看实际执行信息</strong></li>
+</ol>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> system.query_log <span class="keyword">WHERE</span> query_id <span class="operator">=</span> <span class="string">&#x27;...&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p>包括读取的 part 数量、rows read、bytes read、memory usage 等。</p>
+<ol start="3">
+<li><strong>检查合并状态</strong></li>
+</ol>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line"><span class="keyword">SELECT</span> <span class="operator">*</span> <span class="keyword">FROM</span> system.merges <span class="keyword">WHERE</span> <span class="keyword">table</span> <span class="operator">=</span> <span class="string">&#x27;your_table&#x27;</span></span><br></pre></td></tr></table></figure>
+
+<p>频繁合并可能拖慢查询。</p>
+<ol start="4">
+<li><strong>辅助索引是否生效</strong> 使用 <code>EXPLAIN PIPELINE</code> 查看是否启用了 min-max、bloom 过滤器。</li>
+</ol>
+<hr>
+<h2 id="ClickHouse-源码结构总览"><a href="#ClickHouse-源码结构总览" class="headerlink" title="ClickHouse 源码结构总览"></a>ClickHouse 源码结构总览</h2><p>ClickHouse 的源码相对庞大，但结构清晰，主要分为以下几个核心模块（位于 <code>src/</code> 目录）：</p>
+<h3 id="核心模块结构"><a href="#核心模块结构" class="headerlink" title="核心模块结构"></a>核心模块结构</h3><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>内容</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>src/Storages/</code></td>
+<td>各种表引擎，如 MergeTree、Kafka、Memory、Distributed</td>
+</tr>
+<tr>
+<td><code>src/Interpreters/</code></td>
+<td>查询解析与执行计划生成模块</td>
+</tr>
+<tr>
+<td><code>src/Processors/</code></td>
+<td>执行器中的算子和执行 pipeline 实现</td>
+</tr>
+<tr>
+<td><code>src/Columns/</code></td>
+<td>列类型的实现（支持类型系统、向量化）</td>
+</tr>
+<tr>
+<td><code>src/DataTypes/</code></td>
+<td>数据类型定义与转换</td>
+</tr>
+<tr>
+<td><code>src/IO/</code></td>
+<td>文件读写、压缩、缓冲层、缓存策略</td>
+</tr>
+<tr>
+<td><code>src/Parsers/</code></td>
+<td>SQL 解析器（AST 构建）</td>
+</tr>
+<tr>
+<td><code>src/Common/</code></td>
+<td>公共基础库，包括多线程、锁、内存池等</td>
+</tr>
+<tr>
+<td><code>src/Core/</code></td>
+<td>全局上下文定义、查询 ID 管理等</td>
+</tr>
+</tbody></table>
+<hr>
+<h1 id="MergeTree-家族"><a href="#MergeTree-家族" class="headerlink" title="MergeTree 家族"></a>MergeTree 家族</h1><p><strong>所有 MergeTree 系列表引擎都有以下共同能力：</strong></p>
+<ul>
+<li>列式存储（高压缩、按需读取）</li>
+<li>主键有序（支持范围过滤）</li>
+<li>分区写入（支持按时间或字段拆分）</li>
+<li>数据 append-only（不可变 Part）</li>
+<li>后台合并（异步合并优化读取性能）</li>
+<li>TTL 支持（按行&#x2F;列自动清理或迁移）</li>
+<li>支持并发读写、高吞吐 insert</li>
+<li>支持多副本复制（Replicated 变体）</li>
+</ul>
+<hr>
+<h2 id="MergeTree-家族成员一览"><a href="#MergeTree-家族成员一览" class="headerlink" title="MergeTree 家族成员一览"></a>MergeTree 家族成员一览</h2><table>
+<thead>
+<tr>
+<th>引擎名称</th>
+<th>特殊能力</th>
+<th>典型使用场景</th>
+</tr>
+</thead>
+<tbody><tr>
+<td><code>MergeTree</code></td>
+<td>无特殊行为</td>
+<td>通用查询、分析型写入</td>
+</tr>
+<tr>
+<td><code>ReplacingMergeTree</code></td>
+<td>删除重复数据（可选版本字段）</td>
+<td>幂等写入、幂等去重更新</td>
+</tr>
+<tr>
+<td><code>SummingMergeTree</code></td>
+<td>聚合同主键数据</td>
+<td>实时累计、指标类数据</td>
+</tr>
+<tr>
+<td><code>AggregatingMergeTree</code></td>
+<td>支持复杂状态聚合合并</td>
+<td>用户自定义聚合（UDF、HLL）</td>
+</tr>
+<tr>
+<td><code>CollapsingMergeTree</code></td>
+<td>按标志列合并正负事件</td>
+<td>日志型数据，标记删除</td>
+</tr>
+<tr>
+<td><code>VersionedCollapsingMergeTree</code></td>
+<td>同上 + 版本控制</td>
+<td>日志场景下精确回滚</td>
+</tr>
+<tr>
+<td><code>GraphiteMergeTree</code></td>
+<td>针对 Graphite 监控数据设计</td>
+<td>时间序列归档、聚合、清洗</td>
+</tr>
+</tbody></table>
+<p>还有对应的副本版本：</p>
+<ul>
+<li><code>ReplicatedMergeTree</code>（+ 所有以上派生变体都可用 <code>ReplicatedXXXMergeTree</code> 实现多副本）</li>
+</ul>
+<hr>
+<h2 id="关键变体深度解析"><a href="#关键变体深度解析" class="headerlink" title="关键变体深度解析"></a>关键变体深度解析</h2><h3 id="ReplacingMergeTree"><a href="#ReplacingMergeTree" class="headerlink" title="ReplacingMergeTree"></a>ReplacingMergeTree</h3><h4 id="特点："><a href="#特点：" class="headerlink" title="特点："></a>特点：</h4><ul>
+<li>根据主键合并 <strong>重复行</strong>（可选提供 <code>version</code> 字段）</li>
+<li>多条相同主键的记录，保留“最新”版本（如果定义了 <code>version</code>）</li>
+</ul>
+<h4 id="底层行为："><a href="#底层行为：" class="headerlink" title="底层行为："></a>底层行为：</h4><ul>
+<li>合并过程中比较是否主键相同：<ul>
+<li>无版本字段：保留其中任一条（不确定性）</li>
+<li>有版本字段：保留最大版本号的数据</li>
+</ul>
+</li>
+</ul>
+<h4 id="用法示例："><a href="#用法示例：" class="headerlink" title="用法示例："></a>用法示例：</h4><figure class="highlight sql"><table><tr><td class="code"><pre><span class="line">ENGINE <span class="operator">=</span> ReplacingMergeTree(version)</span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> (id)</span><br></pre></td></tr></table></figure>
+
+<h4 id="场景："><a href="#场景：" class="headerlink" title="场景："></a>场景：</h4><ul>
+<li>日志幂等写入（如 Kafka 重放）</li>
+<li>状态表更新（如最后一次登录记录）</li>
+</ul>
+<hr>
+<h3 id="SummingMergeTree"><a href="#SummingMergeTree" class="headerlink" title="SummingMergeTree"></a>SummingMergeTree</h3><h4 id="特点：-1"><a href="#特点：-1" class="headerlink" title="特点："></a>特点：</h4><ul>
+<li>对于主键相同的记录，在合并时自动进行 <strong>数值字段求和</strong></li>
+<li>非数值字段将被忽略合并（丢弃）</li>
+</ul>
+<h4 id="用法示例：-1"><a href="#用法示例：-1" class="headerlink" title="用法示例："></a>用法示例：</h4><figure class="highlight sql"><table><tr><td class="code"><pre><span class="line">ENGINE <span class="operator">=</span> SummingMergeTree</span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> (uid, <span class="type">date</span>)</span><br></pre></td></tr></table></figure>
+
+<h4 id="注意："><a href="#注意：" class="headerlink" title="注意："></a>注意：</h4><ul>
+<li>合并只在后台发生，查询时仍可能看到重复数据</li>
+<li>需要定期执行 <code>OPTIMIZE TABLE</code> 保证合并完成</li>
+</ul>
+<h4 id="场景：-1"><a href="#场景：-1" class="headerlink" title="场景："></a>场景：</h4><ul>
+<li>实时流量统计、PV&#x2F;UV 累计、财务计量汇总</li>
+</ul>
+<hr>
+<h3 id="AggregatingMergeTree"><a href="#AggregatingMergeTree" class="headerlink" title="AggregatingMergeTree"></a>AggregatingMergeTree</h3><h4 id="特点：-2"><a href="#特点：-2" class="headerlink" title="特点："></a>特点：</h4><ul>
+<li>专门支持 <code>AggregateFunction</code> 类型字段的合并</li>
+<li>合并时执行函数级别的聚合（如 <code>uniqState</code>、<code>avgState</code>）</li>
+</ul>
+<h4 id="用法示例：-2"><a href="#用法示例：-2" class="headerlink" title="用法示例："></a>用法示例：</h4><figure class="highlight sql"><table><tr><td class="code"><pre><span class="line">ENGINE <span class="operator">=</span> AggregatingMergeTree</span><br><span class="line"><span class="keyword">ORDER</span> <span class="keyword">BY</span> (app, <span class="type">date</span>)</span><br></pre></td></tr></table></figure>
+
+<p>字段定义示例：</p>
+<figure class="highlight sql"><table><tr><td class="code"><pre><span class="line">AggregateFunction(uniq, UInt64) <span class="keyword">AS</span> uv</span><br></pre></td></tr></table></figure>
+
+<h4 id="底层机制："><a href="#底层机制：" class="headerlink" title="底层机制："></a>底层机制：</h4><ul>
+<li>每次插入时写入状态（如 <code>uniqState</code> 的 bitmap）</li>
+<li>合并时执行状态合并</li>
+<li>查询时通过 <code>final</code> 强制 merge 执行完整聚合</li>
+</ul>
+<h4 id="场景：-2"><a href="#场景：-2" class="headerlink" title="场景："></a>场景：</h4><ul>
+<li>大规模去重、HLL 近似统计</li>
+<li>用户自定义聚合函数存储</li>
+</ul>
+<hr>
+<h2 id="如何选择合适的-MergeTree-变体"><a href="#如何选择合适的-MergeTree-变体" class="headerlink" title="如何选择合适的 MergeTree 变体"></a>如何选择合适的 MergeTree 变体</h2><ul>
+<li><strong>幂等数据写入</strong> → 使用 <code>ReplacingMergeTree(version)</code></li>
+<li><strong>日志数据流入 + 撤销补偿</strong> → <code>CollapsingMergeTree</code> 或 <code>VersionedCollapsingMergeTree</code></li>
+<li><strong>业务指标类数据，需周期汇总</strong> → <code>SummingMergeTree</code></li>
+<li><strong>高精度聚合、近似统计</strong> → <code>AggregatingMergeTree</code></li>
+<li><strong>不需要任何合并行为（如测试）</strong> → <code>MergeTree</code></li>
+</ul>
+<hr>
+]]></content>
+      <tags>
+        <tag>Clickhouse</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>Linux延迟绑定</title>
     <url>/2025/04/10/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/</url>
     <content><![CDATA[<h1 id="Windows-下-lib-dll-obj-exe"><a href="#Windows-下-lib-dll-obj-exe" class="headerlink" title="Windows 下.lib .dll .obj .exe"></a>Windows 下.lib .dll .obj .exe</h1><p>.lib 是静态链接文件</p>
@@ -1113,7 +1685,7 @@
 <p>.got 里面直接存储的就是函数调用的地址，部分函数地址是直接存放在.got 里面的</p>
 <p>PLT 表指向的是.got.plt</p>
 <p>printf@plt 指向的就是 printf<a href="/got.plt">@got.plt </a></p>
-<p>第一次调用时<a href="mailto:&#112;&#x72;&#105;&#110;&#116;&#x66;&#x40;&#103;&#111;&#x74;&#46;&#112;&#x6c;&#116;">printf@got.plt</a>里指向的是 printf@plt 的下一行也就是 push printf 对应的 got 表里的序号</p>
+<p>第一次调用时<a href="mailto:&#112;&#x72;&#x69;&#x6e;&#116;&#102;&#64;&#103;&#111;&#116;&#x2e;&#112;&#x6c;&#116;">printf@got.plt</a>里指向的是 printf@plt 的下一行也就是 push printf 对应的 got 表里的序号</p>
 <p>放在.got 里的相当于.got.plt 第一次调用之后的状态</p>
 <h3 id="RELRO"><a href="#RELRO" class="headerlink" title="RELRO"></a>RELRO</h3><figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">#关闭RELRO</span><br><span class="line">gcc title.c -o title_no -z norelro</span><br><span class="line">#部分开启RELRO(Partial RELRO不加参数默认是这个)</span><br><span class="line">gcc title.c -o title_partial -z lazy</span><br><span class="line">#完全开启RELRO(Full RELRO)</span><br><span class="line">gcc title.c -o title_full -z now</span><br></pre></td></tr></table></figure>
 
@@ -1133,645 +1705,15 @@
       </tags>
   </entry>
   <entry>
-    <title>数据结构</title>
-    <url>/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/</url>
-    <content><![CDATA[<p>快速回忆下大学的数据结构课， 这些看完， 大概下面这些能理解一点啦~</p>
-<ul>
-<li>树</li>
-<li>二叉查找树</li>
-<li>完全二叉树</li>
-<li>平衡二叉树</li>
-<li>n叉树</li>
-<li>树的遍历</li>
-<li>B+树</li>
-<li>跳表</li>
-<li>红黑树</li>
-<li>AVL树</li>
-<li>B树</li>
-</ul>
-<h1 id="树的基本概念"><a href="#树的基本概念" class="headerlink" title="树的基本概念"></a>树的基本概念</h1><p>学习树的基础是理解更复杂的树结构（如红黑树、AVL树等）的前提。让我们从最基本的树概念开始。</p>
-<p><strong>树</strong>（Tree）是一种非线性的数据结构，由节点（Node）组成，节点之间通过边（Edge）连接。树的结构很像倒立的家谱图或者文件系统的结构。</p>
-<p>树是由根节点（Root）开始，经过多个层级的分支（Branch），直到叶子节点（Leaf）</p>
-<h2 id="树的基本术语："><a href="#树的基本术语：" class="headerlink" title="树的基本术语："></a>树的基本术语：</h2><ul>
-<li><strong>根节点（Root）</strong>：树的起始节点，没有父节点。</li>
-<li><strong>节点（Node）</strong>：树中的每个元素，包含数据部分以及指向其他节点的指针（或引用）。</li>
-<li><strong>边（Edge）</strong>：节点之间的连接。</li>
-<li><strong>子节点（Child）</strong>：直接连接到某个节点的节点，称为该节点的子节点。</li>
-<li><strong>父节点（Parent）</strong>：一个节点的直接连接节点是它的父节点。</li>
-<li><strong>叶子节点（Leaf）</strong>：没有子节点的节点。</li>
-<li><strong>高度（Height）</strong>：树的高度是从根节点到最深的叶子节点的最长路径的长度（也可以理解为树的层级数）。</li>
-<li><strong>深度（Depth）</strong>：节点的深度是从根节点到该节点的路径长度。</li>
-<li><strong>层级（Level）</strong>：树中的每一层，通常层级从0开始（根节点是第0层）。</li>
-</ul>
-<h2 id="树的类型"><a href="#树的类型" class="headerlink" title="树的类型"></a>树的类型</h2><p>树可以有不同的形式，以下是几种常见的树类型：</p>
-<h3 id="二叉树-Binary-Tree"><a href="#二叉树-Binary-Tree" class="headerlink" title="二叉树 (Binary Tree)"></a>二叉树 (Binary Tree)</h3><ul>
-<li><strong>定义</strong>：每个节点最多有两个子节点，通常称为左子节点和右子节点。</li>
-<li><strong>特点</strong>：<ul>
-<li>每个节点最多有两个子节点。</li>
-<li>二叉树的每个节点可以有不同数量的子节点（0个、1个或2个）。</li>
-</ul>
-</li>
-<li><strong>用途</strong>：二叉树是很多复杂树结构的基础，例如二叉查找树、堆等。</li>
-</ul>
-<h3 id="二叉查找树-Binary-Search-Tree-BST"><a href="#二叉查找树-Binary-Search-Tree-BST" class="headerlink" title="二叉查找树 (Binary Search Tree, BST)"></a>二叉查找树 (Binary Search Tree, BST)</h3><ul>
-<li><strong>定义</strong>：它是一种特殊的二叉树，节点的左子树上的所有值都小于节点的值，右子树上的所有值都大于节点的值。</li>
-<li><strong>特点</strong>：<ul>
-<li>左子树的所有节点的值都小于根节点。</li>
-<li>右子树的所有节点的值都大于根节点。</li>
-<li>这使得搜索操作可以通过比较快速地确定走向左子树还是右子树。</li>
-</ul>
-</li>
-<li><strong>用途</strong>：用于实现高效的查找、插入、删除等操作。</li>
-</ul>
-<h3 id="完全二叉树-Complete-Binary-Tree"><a href="#完全二叉树-Complete-Binary-Tree" class="headerlink" title="完全二叉树 (Complete Binary Tree)"></a>完全二叉树 (Complete Binary Tree)</h3><ul>
-<li><strong>定义</strong>：一个二叉树，除了最后一层外，其他层都是满的，并且最后一层的节点都靠左排列。</li>
-<li><strong>特点</strong>：<ul>
-<li>除了最后一层，其他层的节点数量都是满的。</li>
-<li>最后一层的节点从左到右填充。</li>
-</ul>
-</li>
-<li><strong>用途</strong>：常用于堆（如大顶堆和小顶堆）等数据结构。</li>
-</ul>
-<h3 id="平衡二叉树-Balanced-Binary-Tree"><a href="#平衡二叉树-Balanced-Binary-Tree" class="headerlink" title="平衡二叉树 (Balanced Binary Tree)"></a>平衡二叉树 (Balanced Binary Tree)</h3><ul>
-<li><strong>定义</strong>：平衡二叉树是一种二叉树，要求每个节点的左右子树高度差不超过一定的范围（如 AVL 树就是一种平衡二叉树）。</li>
-<li><strong>特点</strong>：<ul>
-<li>保证树的高度较低，避免树退化成链表。</li>
-<li>高效的查找、插入和删除操作。</li>
-</ul>
-</li>
-<li><strong>用途</strong>：如 AVL 树、红黑树等，广泛用于数据库索引。</li>
-</ul>
-<h3 id="n叉树-n-ary-Tree"><a href="#n叉树-n-ary-Tree" class="headerlink" title="n叉树 (n-ary Tree)"></a>n叉树 (n-ary Tree)</h3><ul>
-<li><strong>定义</strong>：n叉树是每个节点最多有n个子节点的树。</li>
-<li><strong>特点</strong>：<ul>
-<li>每个节点最多有n个子节点。</li>
-<li>常用于表示具有多层次的复杂数据结构，如文件系统。</li>
-</ul>
-</li>
-</ul>
-<h2 id="树的遍历"><a href="#树的遍历" class="headerlink" title="树的遍历"></a>树的遍历</h2><p>树的遍历是指访问树中所有节点的过程。常见的树的遍历方式有三种：</p>
-<h3 id="前序遍历-Preorder-Traversal"><a href="#前序遍历-Preorder-Traversal" class="headerlink" title="前序遍历 (Preorder Traversal)"></a>前序遍历 (Preorder Traversal)</h3><ul>
-<li><strong>步骤</strong>：先访问当前节点，然后递归地前序遍历左子树，再递归地前序遍历右子树。</li>
-<li><strong>顺序</strong>：根节点 → 左子树 → 右子树。</li>
-</ul>
-<h3 id="中序遍历-Inorder-Traversal"><a href="#中序遍历-Inorder-Traversal" class="headerlink" title="中序遍历 (Inorder Traversal)"></a>中序遍历 (Inorder Traversal)</h3><ul>
-<li><strong>步骤</strong>：递归地中序遍历左子树，访问当前节点，然后递归地中序遍历右子树。</li>
-<li><strong>顺序</strong>：左子树 → 根节点 → 右子树。</li>
-<li><strong>特点</strong>：二叉查找树的中序遍历结果是按从小到大的顺序排列的。</li>
-</ul>
-<h3 id="后序遍历-Postorder-Traversal"><a href="#后序遍历-Postorder-Traversal" class="headerlink" title="后序遍历 (Postorder Traversal)"></a>后序遍历 (Postorder Traversal)</h3><ul>
-<li><strong>步骤</strong>：递归地后序遍历左子树，再递归地后序遍历右子树，然后访问当前节点。</li>
-<li><strong>顺序</strong>：左子树 → 右子树 → 根节点。</li>
-</ul>
-<h3 id="层次遍历-Level-Order-Traversal"><a href="#层次遍历-Level-Order-Traversal" class="headerlink" title="层次遍历 (Level Order Traversal)"></a>层次遍历 (Level Order Traversal)</h3><ul>
-<li><strong>步骤</strong>：按层级遍历树的节点，通常使用队列来实现。</li>
-<li><strong>顺序</strong>：根节点 → 第一层 → 第二层 → 第三层 → ……直到最后一层。</li>
-</ul>
-<h2 id="树的应用"><a href="#树的应用" class="headerlink" title="树的应用"></a>树的应用</h2><p>树作为一种数据结构，有许多实际应用，常见的包括：</p>
-<ul>
-<li><strong>文件系统</strong>：文件和目录组织成树形结构，根目录是树的根节点，文件和文件夹是节点。</li>
-<li><strong>数据库索引</strong>：树结构（如B树、B+树）常用于数据库的索引，帮助快速查找数据。</li>
-<li><strong>游戏决策树</strong>：用于表示游戏中的可能决策路径。</li>
-</ul>
-<hr>
-<h2 id="二叉查找树（Binary-Search-Tree-BST）"><a href="#二叉查找树（Binary-Search-Tree-BST）" class="headerlink" title="二叉查找树（Binary Search Tree, BST）"></a>二叉查找树（Binary Search Tree, BST）</h2><h3 id="定义"><a href="#定义" class="headerlink" title="定义"></a>定义</h3><p>二叉查找树是一种特殊的二叉树，满足以下性质：</p>
-<ul>
-<li>每个节点最多有两个子节点。</li>
-<li>左子树中所有节点的值小于根节点。</li>
-<li>右子树中所有节点的值大于根节点。</li>
-<li>每一棵子树也都是一棵二叉查找树。</li>
-</ul>
-<h3 id="操作"><a href="#操作" class="headerlink" title="操作"></a>操作</h3><p><strong>查找（Search）</strong></p>
-<p>从根节点开始：</p>
-<ul>
-<li>如果目标值等于当前节点，返回。</li>
-<li>如果目标值小于当前节点，进入左子树。</li>
-<li>如果目标值大于当前节点，进入右子树。</li>
-</ul>
-<p>查找的时间复杂度与树的高度有关，最坏是 O(n)，最优是 O(log n)。</p>
-<p><strong>插入（Insert）</strong></p>
-<p>插入值时，按查找路径向下走，找到空位插入即可，不会破坏 BST 结构。</p>
-<p><strong>删除（Delete）</strong></p>
-<p>分三种情况处理：</p>
-<ol>
-<li>删除叶子节点，直接删除。</li>
-<li>删除只有一个子节点的节点，用子节点替换该节点。</li>
-<li>删除有两个子节点的节点，找到该节点的中序后继或中序前驱，用它的值替换当前节点，再删除那个节点。</li>
-</ol>
-<h3 id="问题：BST-可能退化成链表"><a href="#问题：BST-可能退化成链表" class="headerlink" title="问题：BST 可能退化成链表"></a>问题：BST 可能退化成链表</h3><p>如果连续插入有序数据，例如 1、2、3、4、5，树就会变成单边链表，导致查找效率退化为 O(n)。</p>
-<p>为了解决这个问题，就需要引入“自平衡”的机制，也就是平衡二叉树。</p>
-<hr>
-<h2 id="平衡二叉树的基本思想"><a href="#平衡二叉树的基本思想" class="headerlink" title="平衡二叉树的基本思想"></a>平衡二叉树的基本思想</h2><h3 id="什么是平衡"><a href="#什么是平衡" class="headerlink" title="什么是平衡"></a>什么是平衡</h3><p>树的高度决定了查找、插入、删除的效率。所谓平衡，是指尽量保持每个节点的左右子树高度差不要太大，避免形成单边长链。</p>
-<p>平衡树的目标是让树的高度保持在 O(log n) 以内，从而提高整体性能。</p>
-<h3 id="平衡的实现手段：旋转操作"><a href="#平衡的实现手段：旋转操作" class="headerlink" title="平衡的实现手段：旋转操作"></a>平衡的实现手段：旋转操作</h3><p>当插入或删除节点后导致失衡，可以通过旋转操作让树重新平衡。</p>
-<p><strong>左旋</strong></p>
-<p>将某个节点的右子节点提升为新的父节点，原父节点变为其左子节点。</p>
-<p>例子： 节点 A 有右子节点 B，B 再有右子节点 C</p>
-<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">原始结构：</span><br><span class="line">    A</span><br><span class="line">     \</span><br><span class="line">      B</span><br><span class="line">       \</span><br><span class="line">        C</span><br><span class="line"></span><br><span class="line">左旋后：</span><br><span class="line">    B</span><br><span class="line">   / \</span><br><span class="line">  A   C</span><br></pre></td></tr></table></figure>
-
-<p><strong>右旋</strong></p>
-<p>将某个节点的左子节点提升为新的父节点，原父节点变为其右子节点。</p>
-<p>例子： 节点 C 有左子节点 B，B 再有左子节点 A</p>
-<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">原始结构：</span><br><span class="line">    C</span><br><span class="line">   /</span><br><span class="line">  B</span><br><span class="line"> /</span><br><span class="line">A</span><br><span class="line"></span><br><span class="line">右旋后：</span><br><span class="line">    B</span><br><span class="line">   / \</span><br><span class="line">  A   C</span><br></pre></td></tr></table></figure>
-
-<p>通过这些旋转，可以动态调整树结构，使其保持平衡。</p>
-<hr>
-<h2 id="红黑树简介"><a href="#红黑树简介" class="headerlink" title="红黑树简介"></a>红黑树简介</h2><p>红黑树是自平衡的二叉查找树，它使用颜色和旋转来控制树的高度。</p>
-<p>红黑树不是严格平衡的，但它能保证最长路径不会超过最短路径的两倍，因此效率稳定。</p>
-<h3 id="红黑树的五个性质"><a href="#红黑树的五个性质" class="headerlink" title="红黑树的五个性质"></a>红黑树的五个性质</h3><ol>
-<li>每个节点是红色或黑色。</li>
-<li>根节点必须是黑色。</li>
-<li>所有叶子节点（NIL 节点）是黑色。</li>
-<li>如果一个节点是红色的，则它的两个子节点必须是黑色的（不能连续两个红色节点）。</li>
-<li>从任意节点到其所有叶子节点的路径上，包含的黑色节点数量必须相同。</li>
-</ol>
-<p>这些性质共同保证了树的平衡性。</p>
-<hr>
-<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
-<li>普通二叉查找树查找效率依赖于树高，可能退化成链表。</li>
-<li>平衡二叉树通过旋转操作保持结构平衡，提升查找、插入、删除性能。</li>
-<li>红黑树是一种宽松的平衡树，通过颜色约束加旋转来维持近似平衡。</li>
-<li>红黑树是很多底层库和系统（如 Java TreeMap、C++ STL、Linux 内核）使用的高效结构。</li>
-</ul>
-<hr>
-<h1 id="红黑树与-AVL-性能对比，如何选型"><a href="#红黑树与-AVL-性能对比，如何选型" class="headerlink" title="红黑树与 AVL 性能对比，如何选型"></a>红黑树与 AVL 性能对比，如何选型</h1><p>这是一个很实用、也很容易被误解的问题。我们来进行一次<strong>实事求是</strong>的对比，站在工程实践的角度，讲清楚 <strong>红黑树 vs AVL 树 的性能差异、适用场景、优缺点、如何选型</strong>。</p>
-<hr>
-<h2 id="红黑树与-AVL-树的核心差异"><a href="#红黑树与-AVL-树的核心差异" class="headerlink" title="红黑树与 AVL 树的核心差异"></a>红黑树与 AVL 树的核心差异</h2><table>
-<thead>
-<tr>
-<th>比较点</th>
-<th>AVL 树</th>
-<th>红黑树</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>平衡性</td>
-<td>严格平衡（左右子树高度差 ≤ 1）</td>
-<td>相对平衡（通过颜色规则控制）</td>
-</tr>
-<tr>
-<td>插入效率</td>
-<td>较慢，可能频繁旋转</td>
-<td>较快，旋转次数更少</td>
-</tr>
-<tr>
-<td>删除效率</td>
-<td>更慢（容易失衡）</td>
-<td>更快（更容忍不平衡）</td>
-</tr>
-<tr>
-<td>查找效率</td>
-<td>稍快（更矮更“紧凑”）</td>
-<td>稍慢（更高一些）</td>
-</tr>
-<tr>
-<td>实现复杂度</td>
-<td>中等</td>
-<td>略高，染色逻辑更麻烦</td>
-</tr>
-<tr>
-<td>实际树高</td>
-<td>log(n)，更低</td>
-<td>最坏 2log(n)，略高但可接受</td>
-</tr>
-<tr>
-<td>应用场景</td>
-<td>查找密集</td>
-<td>插入&#x2F;删除频繁</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="时间复杂度对比（理论上相同）"><a href="#时间复杂度对比（理论上相同）" class="headerlink" title="时间复杂度对比（理论上相同）"></a>时间复杂度对比（理论上相同）</h2><table>
-<thead>
-<tr>
-<th>操作</th>
-<th>AVL</th>
-<th>红黑树</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>查找</td>
-<td>O(log n)</td>
-<td>O(log n)</td>
-</tr>
-<tr>
-<td>插入</td>
-<td>O(log n) + 最多 2 次旋转</td>
-<td>O(log n) + 最多 3 次旋转 + 染色</td>
-</tr>
-<tr>
-<td>删除</td>
-<td>O(log n) + 最多 log n 次旋转</td>
-<td>O(log n) + 最多 3 次旋转 + 染色</td>
-</tr>
-</tbody></table>
-<p><strong>注意</strong>：红黑树旋转次数少于 AVL，是因为它更“宽松”地控制平衡。</p>
-<hr>
-<h2 id="为什么工程中更常用红黑树？"><a href="#为什么工程中更常用红黑树？" class="headerlink" title="为什么工程中更常用红黑树？"></a>为什么工程中更常用红黑树？</h2><h3 id="1-插入、删除性能更稳定"><a href="#1-插入、删除性能更稳定" class="headerlink" title="1. 插入、删除性能更稳定"></a>1. 插入、删除性能更稳定</h3><p>AVL 树插入删除操作中需要频繁调整结构（旋转），因为它追求高度的平衡性。虽然这保证了查找很快，但维护成本高。</p>
-<p>红黑树采用更“保守”的平衡策略，调整动作较少，<strong>整体吞吐量更好</strong>。这在系统级开发中非常重要，比如操作系统、数据库、语言运行时。</p>
-<h3 id="2-插入-删除频率高时，红黑树吞吐量优于-AVL"><a href="#2-插入-删除频率高时，红黑树吞吐量优于-AVL" class="headerlink" title="2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVL"></a>2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVL</h3><p>AVL树适合“读多写少”的场景，比如缓存系统。</p>
-<p>红黑树适合“读写都频繁”的场景，比如内核调度、任务队列、映射表等。</p>
-<hr>
-<h2 id="实际案例对比"><a href="#实际案例对比" class="headerlink" title="实际案例对比"></a>实际案例对比</h2><h3 id="Java-TreeMap-TreeSet"><a href="#Java-TreeMap-TreeSet" class="headerlink" title="Java TreeMap &#x2F; TreeSet"></a>Java <code>TreeMap</code> &#x2F; <code>TreeSet</code></h3><ul>
-<li>使用的是 <strong>红黑树</strong> 实现</li>
-<li>原因：Java中集合类通常面对频繁插入和删除（如实时排序、排名等），红黑树性能更均衡</li>
-</ul>
-<h3 id="C-STL-的-std-map-std-set"><a href="#C-STL-的-std-map-std-set" class="headerlink" title="C++ STL 的 std::map &#x2F; std::set"></a>C++ STL 的 <code>std::map</code> &#x2F; <code>std::set</code></h3><ul>
-<li>也使用的是 <strong>红黑树</strong></li>
-<li>同样考虑的是泛型容器的插入&#x2F;删除复杂度</li>
-</ul>
-<h3 id="Linux-内核调度器-时间红黑树（RB-tree）"><a href="#Linux-内核调度器-时间红黑树（RB-tree）" class="headerlink" title="Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）"></a>Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）</h3><ul>
-<li>使用的是红黑树（见 <code>include/linux/rbtree.h</code>）</li>
-<li>因为调度器中的进程插入&#x2F;删除频繁，而查找不一定多，所以使用红黑树性能更佳</li>
-</ul>
-<hr>
-<h2 id="什么时候选-AVL-树？"><a href="#什么时候选-AVL-树？" class="headerlink" title="什么时候选 AVL 树？"></a>什么时候选 AVL 树？</h2><p>虽然工程里红黑树更常见，但 <strong>AVL 并不是没用</strong>，它在以下场景下依然有价值：</p>
-<ul>
-<li>对查找性能要求极致，数据变动频率低的场景<ul>
-<li>如<strong>内存索引、缓存服务、读密集型数据库</strong></li>
-</ul>
-</li>
-<li>数据量适中，性能压力可控，希望保证查找时间始终最优</li>
-</ul>
-<p>比如：一个静态配置中心，你预先插入一些配置项，然后主要是查找访问。用 AVL 是合理的。</p>
-<hr>
-<h2 id="工程选型建议总结"><a href="#工程选型建议总结" class="headerlink" title="工程选型建议总结"></a>工程选型建议总结</h2><table>
-<thead>
-<tr>
-<th>场景</th>
-<th>推荐结构</th>
-<th>原因</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>查找频繁、插入删除极少</td>
-<td>AVL</td>
-<td>查找快，保持严格平衡</td>
-</tr>
-<tr>
-<td>插入&#x2F;删除频繁，查找适中</td>
-<td>红黑树</td>
-<td>性能更均衡，旋转少</td>
-</tr>
-<tr>
-<td>需要范围查询</td>
-<td>B+树</td>
-<td>存储系统常用结构（如数据库）</td>
-</tr>
-<tr>
-<td>高并发环境下</td>
-<td>并发跳表 &#x2F; 哈希表</td>
-<td>红黑树&#x2F;AVL 不擅长并发控制</td>
-</tr>
-<tr>
-<td>内核、调度系统</td>
-<td>红黑树</td>
-<td>插入&#x2F;删除频繁，吞吐量更重要</td>
-</tr>
-<tr>
-<td>学术 &#x2F; 教学用</td>
-<td>AVL</td>
-<td>更容易推导、理解平衡原理</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="总结一句话"><a href="#总结一句话" class="headerlink" title="总结一句话"></a>总结一句话</h2><p><strong>红黑树是工业界的主流选型，因为它在保持平衡和性能之间做了非常合理的权衡。</strong></p>
-<p>而 AVL 更适合做“查找效率最优”的算法研究、教学或低变更场景。</p>
-<h1 id="B树、B-树、跳表"><a href="#B树、B-树、跳表" class="headerlink" title="B树、B+树、跳表"></a>B树、B+树、跳表</h1><p>非常好，接下来我们进入数据库&#x2F;存储系统中常用的三种结构：<strong>B树、B+树、跳表</strong>，它们都是用于<strong>范围查找、批量排序、动态插入删除</strong>等复杂需求下的数据结构。</p>
-<p>我会按这个顺序讲解：</p>
-<ol>
-<li><strong>先讲 B 树</strong>：基础结构，理解它是后续 B+ 树的前提</li>
-<li><strong>再讲 B+ 树</strong>：数据库索引、文件系统最常用结构</li>
-<li><strong>最后讲跳表</strong>：高性能内存结构，Redis 的最爱</li>
-</ol>
-<p>每一个我们都会涵盖：</p>
-<ul>
-<li>是什么（直观理解）</li>
-<li>如何组织数据</li>
-<li>查找&#x2F;插入&#x2F;删除怎么做</li>
-<li>为什么它适合某类场景</li>
-</ul>
-<hr>
-<h2 id="B-树（Balanced-Tree-多路平衡查找树）"><a href="#B-树（Balanced-Tree-多路平衡查找树）" class="headerlink" title="B 树（Balanced Tree &#x2F; 多路平衡查找树）"></a>B 树（Balanced Tree &#x2F; 多路平衡查找树）</h2><h3 id="是什么"><a href="#是什么" class="headerlink" title="是什么"></a>是什么</h3><p>B 树是一种<strong>多路搜索树</strong>，是对二叉搜索树的推广。每个节点不仅可以有两个子节点，而是可以有多个。<br>广泛用于<strong>磁盘存储、数据库索引结构</strong>中，因为它减少了磁盘读写次数。</p>
-<h3 id="特点"><a href="#特点" class="headerlink" title="特点"></a>特点</h3><ul>
-<li>每个节点最多有 <code>m-1</code> 个数据项，<code>m</code> 个子指针（m 是阶数）</li>
-<li>所有节点的关键字保持有序</li>
-<li>插入、删除后依然保持平衡</li>
-<li>所有叶子节点在同一层（树高固定）</li>
-</ul>
-<h3 id="举例（以3阶-B-树为例）"><a href="#举例（以3阶-B-树为例）" class="headerlink" title="举例（以3阶 B 树为例）"></a>举例（以3阶 B 树为例）</h3><ul>
-<li>一个节点最多 2 个键，最多有 3 个子节点</li>
-<li>比如节点中有 [10, 20]，它的子树范围：<ul>
-<li>子树1：小于 10</li>
-<li>子树2：10~20</li>
-<li>子树3：大于 20</li>
-</ul>
-</li>
-</ul>
-<h3 id="查找"><a href="#查找" class="headerlink" title="查找"></a>查找</h3><p>和二分查找类似：</p>
-<ul>
-<li>从根节点开始，在节点中查找关键字位置（可以使用二分）</li>
-<li>找不到则沿对应子树向下</li>
-</ul>
-<p>时间复杂度为 O(log n)，<strong>但每一层“跨度大”，所以树的高度更低，查找更快</strong></p>
-<h3 id="插入"><a href="#插入" class="headerlink" title="插入"></a>插入</h3><ul>
-<li>找到插入位置，插入键</li>
-<li>如果节点已满，就<strong>分裂节点</strong>，中间值“上提”到父节点</li>
-<li>插入可能从叶子一路调整到根节点，最多增加一层高度</li>
-</ul>
-<h3 id="删除"><a href="#删除" class="headerlink" title="删除"></a>删除</h3><ul>
-<li>类似 BST，找到值删掉</li>
-<li>如果节点删除后不满足最小关键字数量，就需要<strong>向兄弟借值或合并节点</strong></li>
-<li>复杂度 O(log n)</li>
-</ul>
-<h3 id="应用场景"><a href="#应用场景" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
-<li>MySQL 的 MyISAM 引擎使用的是 <strong>B 树索引</strong></li>
-<li>适合中等范围查询、单点查找、插入删除都频繁的磁盘结构</li>
-</ul>
-<hr>
-<h2 id="B-树（B-Tree-的增强版）"><a href="#B-树（B-Tree-的增强版）" class="headerlink" title="B+ 树（B Tree 的增强版）"></a>B+ 树（B Tree 的增强版）</h2><h3 id="是什么-1"><a href="#是什么-1" class="headerlink" title="是什么"></a>是什么</h3><p>B+ 树是 B 树的一个变种，<strong>所有值都存在叶子节点</strong>，非叶子节点只做“导航”。</p>
-<p><strong>MySQL InnoDB、文件系统、LevelDB 等都使用 B+ 树作为索引结构。</strong></p>
-<h3 id="和-B-树的区别"><a href="#和-B-树的区别" class="headerlink" title="和 B 树的区别"></a>和 B 树的区别</h3><table>
-<thead>
-<tr>
-<th>特性</th>
-<th>B 树</th>
-<th>B+ 树</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>数据存储</td>
-<td>所有节点存数据</td>
-<td>只有叶子节点存数据</td>
-</tr>
-<tr>
-<td>内部节点</td>
-<td>数据 + 导航</td>
-<td>仅导航（索引）</td>
-</tr>
-<tr>
-<td>查找路径</td>
-<td>可提前终止</td>
-<td>一定走到叶子节点</td>
-</tr>
-<tr>
-<td>范围查询</td>
-<td>差</td>
-<td>强（叶子节点有链表）</td>
-</tr>
-</tbody></table>
-<h3 id="特点-1"><a href="#特点-1" class="headerlink" title="特点"></a>特点</h3><ul>
-<li>所有叶子节点通过链表串起来，方便范围查询</li>
-<li>非叶子节点只做索引，节省空间，<strong>扇出更高，树更矮</strong></li>
-<li>结构更适合磁盘块对齐，减少 IO 次数</li>
-</ul>
-<h3 id="查找-1"><a href="#查找-1" class="headerlink" title="查找"></a>查找</h3><ul>
-<li>和 B 树类似，但一定查到叶子节点才能拿到数据</li>
-<li>路径更统一，便于实现</li>
-</ul>
-<h3 id="范围查询"><a href="#范围查询" class="headerlink" title="范围查询"></a>范围查询</h3><ul>
-<li>特别高效，只需要找到范围起点，然后从链表顺着读下去即可</li>
-</ul>
-<h3 id="应用场景-1"><a href="#应用场景-1" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
-<li><strong>数据库索引（MySQL InnoDB）</strong></li>
-<li><strong>文件系统（如 NTFS, XFS）</strong></li>
-<li>批量范围读取、数据分页、高并发写场景</li>
-</ul>
-<hr>
-<h2 id="跳表（Skip-List）"><a href="#跳表（Skip-List）" class="headerlink" title="跳表（Skip List）"></a>跳表（Skip List）</h2><h3 id="是什么-2"><a href="#是什么-2" class="headerlink" title="是什么"></a>是什么</h3><p>跳表是一种通过在链表上建立多级索引的方式实现快速查找的数据结构。</p>
-<p>你可以理解为：<strong>链表 + 多层快速通道</strong>，是“概率化”实现的平衡树。</p>
-<h3 id="结构"><a href="#结构" class="headerlink" title="结构"></a>结构</h3><ul>
-<li>底层是有序链表（维护所有元素）</li>
-<li>每一层随机选取一些节点参与“快速通道”</li>
-<li>每一层都是下一层的子集，最顶层最稀疏</li>
-</ul>
-<p>比如有 16 个节点，可能层结构像这样：</p>
-<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">Level 3:      A --------- H</span><br><span class="line">Level 2:      A ---- E -- H -- M</span><br><span class="line">Level 1: A - B - C - D - E - F - G - H - I - ... - P</span><br></pre></td></tr></table></figure>
-
-<h3 id="查找-2"><a href="#查找-2" class="headerlink" title="查找"></a>查找</h3><ul>
-<li>从顶层开始，逐层往下，直到定位到目标位置</li>
-<li>每次跳跃跨度大，大大加快查找速度</li>
-</ul>
-<p>平均时间复杂度：O(log n)</p>
-<h3 id="插入-删除"><a href="#插入-删除" class="headerlink" title="插入 &#x2F; 删除"></a>插入 &#x2F; 删除</h3><ul>
-<li>插入新节点后，按概率决定它会出现在多少层（比如 Redis 是1&#x2F;4 概率上升一层）</li>
-<li>删除也是先找到节点，再清理所有层级中的引用</li>
-</ul>
-<p>时间复杂度：O(log n)</p>
-<h3 id="应用场景-2"><a href="#应用场景-2" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
-<li><strong>Redis 的 zset（有序集合）使用跳表实现</strong></li>
-<li>比树更容易实现，适合内存结构、并发场景</li>
-<li>查找、插入、删除都非常高效</li>
-<li>不需要复杂的旋转、维护，代码比平衡树更简单</li>
-</ul>
-<hr>
-<h2 id="三者对比总结"><a href="#三者对比总结" class="headerlink" title="三者对比总结"></a>三者对比总结</h2><table>
-<thead>
-<tr>
-<th>特性</th>
-<th>B 树</th>
-<th>B+ 树</th>
-<th>跳表</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>查找效率</td>
-<td>O(log n)</td>
-<td>O(log n)</td>
-<td>O(log n)</td>
-</tr>
-<tr>
-<td>插入&#x2F;删除</td>
-<td>O(log n)</td>
-<td>O(log n)</td>
-<td>O(log n)（更简单）</td>
-</tr>
-<tr>
-<td>是否适合磁盘</td>
-<td>是</td>
-<td>是（最佳）</td>
-<td>否，适合内存</td>
-</tr>
-<tr>
-<td>是否适合范围查询</td>
-<td>一般</td>
-<td>强（链表）</td>
-<td>强（链表）</td>
-</tr>
-<tr>
-<td>实现复杂度</td>
-<td>中</td>
-<td>中高</td>
-<td>低（逻辑简单）</td>
-</tr>
-<tr>
-<td>工程应用</td>
-<td>MyISAM索引</td>
-<td>InnoDB索引，文件系统</td>
-<td>Redis zset、有序内存结构</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="总结建议"><a href="#总结建议" class="headerlink" title="总结建议"></a>总结建议</h2><ul>
-<li><strong>数据库磁盘索引</strong>：使用 B+ 树。查找、范围查询快，IO次数少，MySQL&#x2F;Oracle&#x2F;SQLite都用它。</li>
-<li><strong>键值对内存结构（Redis）</strong>：用跳表。简单好用，查找&#x2F;插入性能稳定。</li>
-<li><strong>老的存储结构或小范围索引</strong>：B 树也能用，但现在基本被 B+ 树取代。</li>
-</ul>
-<hr>
-<h2 id="B树和B-树对比"><a href="#B树和B-树对比" class="headerlink" title="B树和B+树对比"></a>B树和B+树对比</h2><ul>
-<li><strong>B树</strong> 和 <strong>B+树</strong> 都是自平衡的多路查找树，它们通过分支节点和数据节点组织数据，确保了对大规模数据的高效查找。</li>
-<li><strong>B+树</strong> 相比于 <strong>B树</strong>，更加高效，特别是在 <strong>范围查询</strong> 和 <strong>顺序访问</strong> 上，因此在数据库和文件系统中，B+树的应用更加广泛。</li>
-<li><strong>B树</strong> 适合需要 <strong>较少的范围查询</strong> 或 <strong>较均衡的查找操作</strong> 的场景，而 <strong>B+树</strong> 更适合 <strong>大规模数据存储、范围查询和顺序扫描</strong> 的场景。</li>
-</ul>
-<hr>
-<h1 id="什么是-AVL-树？"><a href="#什么是-AVL-树？" class="headerlink" title="什么是 AVL 树？"></a>什么是 AVL 树？</h1><p><strong>AVL 树</strong> 是一种 <strong>自平衡的二叉查找树（Binary Search Tree, BST）</strong>，它的全称是：</p>
-<p><strong>Adelson-Velsky and Landis Tree</strong><br>由两位苏联科学家在 1962 年提出，是世界上第一个自平衡二叉查找树。</p>
-<hr>
-<h2 id="AVL-树的核心特性"><a href="#AVL-树的核心特性" class="headerlink" title="AVL 树的核心特性"></a>AVL 树的核心特性</h2><h3 id="自平衡的定义"><a href="#自平衡的定义" class="headerlink" title="自平衡的定义"></a>自平衡的定义</h3><p>对于 <strong>树中的每一个节点</strong>，都必须满足：</p>
-<p><strong>左子树和右子树的高度差 ≤ 1</strong></p>
-<p>这个高度差我们称为该节点的 <strong>平衡因子（Balance Factor）</strong>，它的取值只能是：</p>
-<ul>
-<li>-1（右子树比左子树高一层）</li>
-<li>0（左右等高）</li>
-<li>+1（左子树比右子树高一层）</li>
-</ul>
-<p>一旦插入或删除节点后某个节点的平衡因子超过这个范围（比如变成了 2 或 -2），就需要<strong>通过旋转操作来恢复平衡</strong>。</p>
-<hr>
-<h2 id="为什么需要-AVL-树？"><a href="#为什么需要-AVL-树？" class="headerlink" title="为什么需要 AVL 树？"></a>为什么需要 AVL 树？</h2><p>普通的二叉查找树（BST）在最坏情况下会退化成链表，导致操作效率变为 O(n)。<br>而 AVL 树通过强制控制“平衡因子”，保持<strong>树高度为 O(log n)</strong>，确保：</p>
-<ul>
-<li>查找（Search）</li>
-<li>插入（Insert）</li>
-<li>删除（Delete）</li>
-</ul>
-<p>这些操作都能在对数时间内完成。</p>
-<hr>
-<h2 id="AVL-树的旋转操作"><a href="#AVL-树的旋转操作" class="headerlink" title="AVL 树的旋转操作"></a>AVL 树的旋转操作</h2><h3 id="单旋（Single-Rotation）"><a href="#单旋（Single-Rotation）" class="headerlink" title="单旋（Single Rotation）"></a>单旋（Single Rotation）</h3><ol>
-<li><strong>右旋（Right Rotation）</strong><br>用于左子树过高（LL 失衡）</li>
-<li><strong>左旋（Left Rotation）</strong><br>用于右子树过高（RR 失衡）</li>
-</ol>
-<h3 id="双旋（Double-Rotation）"><a href="#双旋（Double-Rotation）" class="headerlink" title="双旋（Double Rotation）"></a>双旋（Double Rotation）</h3><ol>
-<li><strong>先左旋再右旋（Left-Right Rotation）</strong><br>用于插入到左子树的右子树（LR 型失衡）</li>
-<li><strong>先右旋再左旋（Right-Left Rotation）</strong><br>用于插入到右子树的左子树（RL 型失衡）</li>
-</ol>
-<hr>
-<h2 id="操作复杂度"><a href="#操作复杂度" class="headerlink" title="操作复杂度"></a>操作复杂度</h2><table>
-<thead>
-<tr>
-<th>操作</th>
-<th>时间复杂度</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>查找</td>
-<td>O(log n)</td>
-</tr>
-<tr>
-<td>插入</td>
-<td>O(log n)（可能旋转）</td>
-</tr>
-<tr>
-<td>删除</td>
-<td>O(log n)（可能多次旋转）</td>
-</tr>
-</tbody></table>
-<p>AVL 树高度非常低，接近 log₂(n)，因此查找性能极优。</p>
-<hr>
-<h2 id="示例"><a href="#示例" class="headerlink" title="示例"></a>示例</h2><p>假设我们依次插入以下节点：10 → 20 → 30</p>
-<p>普通 BST 结构变成：</p>
-<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">10</span><br><span class="line">  \</span><br><span class="line">   20</span><br><span class="line">     \</span><br><span class="line">      30</span><br></pre></td></tr></table></figure>
-
-<p>此时树高度为 3，已经失衡，AVL 会做一次左旋，变成：</p>
-<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">20</span><br><span class="line">   /  \</span><br><span class="line">  10  30</span><br></pre></td></tr></table></figure>
-
-<p>保持了平衡。</p>
-<hr>
-<h2 id="AVL-树-vs-红黑树"><a href="#AVL-树-vs-红黑树" class="headerlink" title="AVL 树 vs 红黑树"></a>AVL 树 vs 红黑树</h2><table>
-<thead>
-<tr>
-<th>对比项</th>
-<th>AVL 树</th>
-<th>红黑树</th>
-</tr>
-</thead>
-<tbody><tr>
-<td>平衡程度</td>
-<td>更严格（左右子树高差 ≤ 1）</td>
-<td>较宽松（限制黑节点数目）</td>
-</tr>
-<tr>
-<td>插入&#x2F;删除效率</td>
-<td>较慢，旋转多</td>
-<td>较快，旋转少</td>
-</tr>
-<tr>
-<td>查找效率</td>
-<td>稍快</td>
-<td>稍慢</td>
-</tr>
-<tr>
-<td>实际应用</td>
-<td>内存查找、读多写少</td>
-<td>系统结构、写操作多</td>
-</tr>
-<tr>
-<td>实现复杂度</td>
-<td>中</td>
-<td>高</td>
-</tr>
-</tbody></table>
-<hr>
-<h2 id="适用场景"><a href="#适用场景" class="headerlink" title="适用场景"></a>适用场景</h2><ul>
-<li>查找频率高，插入&#x2F;删除少的场景，如内存中的索引结构</li>
-<li>不适合频繁更新的场景，因为每次插入&#x2F;删除都可能触发旋转</li>
-</ul>
-<hr>
-<h1 id="B树与平衡二叉查找树的对比"><a href="#B树与平衡二叉查找树的对比" class="headerlink" title="B树与平衡二叉查找树的对比"></a>B树与平衡二叉查找树的对比</h1><table>
-<thead>
-<tr>
-<th>特性</th>
-<th><strong>B树</strong></th>
-<th><strong>平衡二叉查找树（如 AVL 树、红黑树）</strong></th>
-</tr>
-</thead>
-<tbody><tr>
-<td><strong>适用场景</strong></td>
-<td>大规模数据存储，尤其是磁盘存储；数据库索引，文件系统管理</td>
-<td>内存中的动态数据存储，集合、映射、优先队列等</td>
-</tr>
-<tr>
-<td><strong>树的结构</strong></td>
-<td>多路树，每个节点有多个子节点</td>
-<td>二叉树，每个节点最多有两个子节点</td>
-</tr>
-<tr>
-<td><strong>查找性能</strong></td>
-<td>O(log n)，但通常更适合磁盘存储，减少磁盘访问次数</td>
-<td>O(log n)，在内存中查找非常高效</td>
-</tr>
-<tr>
-<td><strong>节点大小</strong></td>
-<td>每个节点包含多个键和多个子指针，适合减少磁盘访问次数</td>
-<td>每个节点只包含一个键和最多两个子指针</td>
-</tr>
-<tr>
-<td><strong>插入&#x2F;删除操作</strong></td>
-<td>节点分裂&#x2F;合并，通常需要更复杂的操作来保持平衡</td>
-<td>旋转操作，通过保持平衡因子来保证平衡</td>
-</tr>
-<tr>
-<td><strong>支持范围查询</strong></td>
-<td>非常高效，能够快速查找和遍历范围数据</td>
-<td>支持范围查询，但对于大量范围查询不如 B 树高效</td>
-</tr>
-<tr>
-<td><strong>内存与存储</strong></td>
-<td>适合外存存储，能高效处理大量数据</td>
-<td>适用于内存数据管理，数据规模适中，内存存储</td>
-</tr>
-</tbody></table>
+    <title>Hey, there~</title>
+    <url>/2025/03/18/%E4%BB%8B%E7%BB%8D/</url>
+    <content><![CDATA[<h1 id="介绍"><a href="#介绍" class="headerlink" title="介绍"></a>介绍</h1><p>Hey, there~</p>
+<p>使用的 <code>hexo</code> + <code>butterfly</code> 生成的静态页面,部署在 Github 个人主页</p>
+<p>之后应该会记录一些自己的学习笔记</p>
+<p>主要学习和工作方向是安全研发,但是目前工作内容很杂,因此记录的内容也会涉及不同的领域</p>
 ]]></content>
       <tags>
-        <tag>数据结构</tag>
+        <tag>闲话</tag>
       </tags>
   </entry>
   <entry>
@@ -2713,6 +2655,648 @@
 ]]></content>
       <tags>
         <tag>Redis</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>数据结构</title>
+    <url>/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/</url>
+    <content><![CDATA[<p>快速回忆下大学的数据结构课， 这些看完， 大概下面这些能理解一点啦~</p>
+<ul>
+<li>树</li>
+<li>二叉查找树</li>
+<li>完全二叉树</li>
+<li>平衡二叉树</li>
+<li>n叉树</li>
+<li>树的遍历</li>
+<li>B+树</li>
+<li>跳表</li>
+<li>红黑树</li>
+<li>AVL树</li>
+<li>B树</li>
+</ul>
+<h1 id="树的基本概念"><a href="#树的基本概念" class="headerlink" title="树的基本概念"></a>树的基本概念</h1><p>学习树的基础是理解更复杂的树结构（如红黑树、AVL树等）的前提。让我们从最基本的树概念开始。</p>
+<p><strong>树</strong>（Tree）是一种非线性的数据结构，由节点（Node）组成，节点之间通过边（Edge）连接。树的结构很像倒立的家谱图或者文件系统的结构。</p>
+<p>树是由根节点（Root）开始，经过多个层级的分支（Branch），直到叶子节点（Leaf）</p>
+<h2 id="树的基本术语："><a href="#树的基本术语：" class="headerlink" title="树的基本术语："></a>树的基本术语：</h2><ul>
+<li><strong>根节点（Root）</strong>：树的起始节点，没有父节点。</li>
+<li><strong>节点（Node）</strong>：树中的每个元素，包含数据部分以及指向其他节点的指针（或引用）。</li>
+<li><strong>边（Edge）</strong>：节点之间的连接。</li>
+<li><strong>子节点（Child）</strong>：直接连接到某个节点的节点，称为该节点的子节点。</li>
+<li><strong>父节点（Parent）</strong>：一个节点的直接连接节点是它的父节点。</li>
+<li><strong>叶子节点（Leaf）</strong>：没有子节点的节点。</li>
+<li><strong>高度（Height）</strong>：树的高度是从根节点到最深的叶子节点的最长路径的长度（也可以理解为树的层级数）。</li>
+<li><strong>深度（Depth）</strong>：节点的深度是从根节点到该节点的路径长度。</li>
+<li><strong>层级（Level）</strong>：树中的每一层，通常层级从0开始（根节点是第0层）。</li>
+</ul>
+<h2 id="树的类型"><a href="#树的类型" class="headerlink" title="树的类型"></a>树的类型</h2><p>树可以有不同的形式，以下是几种常见的树类型：</p>
+<h3 id="二叉树-Binary-Tree"><a href="#二叉树-Binary-Tree" class="headerlink" title="二叉树 (Binary Tree)"></a>二叉树 (Binary Tree)</h3><ul>
+<li><strong>定义</strong>：每个节点最多有两个子节点，通常称为左子节点和右子节点。</li>
+<li><strong>特点</strong>：<ul>
+<li>每个节点最多有两个子节点。</li>
+<li>二叉树的每个节点可以有不同数量的子节点（0个、1个或2个）。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：二叉树是很多复杂树结构的基础，例如二叉查找树、堆等。</li>
+</ul>
+<h3 id="二叉查找树-Binary-Search-Tree-BST"><a href="#二叉查找树-Binary-Search-Tree-BST" class="headerlink" title="二叉查找树 (Binary Search Tree, BST)"></a>二叉查找树 (Binary Search Tree, BST)</h3><ul>
+<li><strong>定义</strong>：它是一种特殊的二叉树，节点的左子树上的所有值都小于节点的值，右子树上的所有值都大于节点的值。</li>
+<li><strong>特点</strong>：<ul>
+<li>左子树的所有节点的值都小于根节点。</li>
+<li>右子树的所有节点的值都大于根节点。</li>
+<li>这使得搜索操作可以通过比较快速地确定走向左子树还是右子树。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：用于实现高效的查找、插入、删除等操作。</li>
+</ul>
+<h3 id="完全二叉树-Complete-Binary-Tree"><a href="#完全二叉树-Complete-Binary-Tree" class="headerlink" title="完全二叉树 (Complete Binary Tree)"></a>完全二叉树 (Complete Binary Tree)</h3><ul>
+<li><strong>定义</strong>：一个二叉树，除了最后一层外，其他层都是满的，并且最后一层的节点都靠左排列。</li>
+<li><strong>特点</strong>：<ul>
+<li>除了最后一层，其他层的节点数量都是满的。</li>
+<li>最后一层的节点从左到右填充。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：常用于堆（如大顶堆和小顶堆）等数据结构。</li>
+</ul>
+<h3 id="平衡二叉树-Balanced-Binary-Tree"><a href="#平衡二叉树-Balanced-Binary-Tree" class="headerlink" title="平衡二叉树 (Balanced Binary Tree)"></a>平衡二叉树 (Balanced Binary Tree)</h3><ul>
+<li><strong>定义</strong>：平衡二叉树是一种二叉树，要求每个节点的左右子树高度差不超过一定的范围（如 AVL 树就是一种平衡二叉树）。</li>
+<li><strong>特点</strong>：<ul>
+<li>保证树的高度较低，避免树退化成链表。</li>
+<li>高效的查找、插入和删除操作。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：如 AVL 树、红黑树等，广泛用于数据库索引。</li>
+</ul>
+<h3 id="n叉树-n-ary-Tree"><a href="#n叉树-n-ary-Tree" class="headerlink" title="n叉树 (n-ary Tree)"></a>n叉树 (n-ary Tree)</h3><ul>
+<li><strong>定义</strong>：n叉树是每个节点最多有n个子节点的树。</li>
+<li><strong>特点</strong>：<ul>
+<li>每个节点最多有n个子节点。</li>
+<li>常用于表示具有多层次的复杂数据结构，如文件系统。</li>
+</ul>
+</li>
+</ul>
+<h2 id="树的遍历"><a href="#树的遍历" class="headerlink" title="树的遍历"></a>树的遍历</h2><p>树的遍历是指访问树中所有节点的过程。常见的树的遍历方式有三种：</p>
+<h3 id="前序遍历-Preorder-Traversal"><a href="#前序遍历-Preorder-Traversal" class="headerlink" title="前序遍历 (Preorder Traversal)"></a>前序遍历 (Preorder Traversal)</h3><ul>
+<li><strong>步骤</strong>：先访问当前节点，然后递归地前序遍历左子树，再递归地前序遍历右子树。</li>
+<li><strong>顺序</strong>：根节点 → 左子树 → 右子树。</li>
+</ul>
+<h3 id="中序遍历-Inorder-Traversal"><a href="#中序遍历-Inorder-Traversal" class="headerlink" title="中序遍历 (Inorder Traversal)"></a>中序遍历 (Inorder Traversal)</h3><ul>
+<li><strong>步骤</strong>：递归地中序遍历左子树，访问当前节点，然后递归地中序遍历右子树。</li>
+<li><strong>顺序</strong>：左子树 → 根节点 → 右子树。</li>
+<li><strong>特点</strong>：二叉查找树的中序遍历结果是按从小到大的顺序排列的。</li>
+</ul>
+<h3 id="后序遍历-Postorder-Traversal"><a href="#后序遍历-Postorder-Traversal" class="headerlink" title="后序遍历 (Postorder Traversal)"></a>后序遍历 (Postorder Traversal)</h3><ul>
+<li><strong>步骤</strong>：递归地后序遍历左子树，再递归地后序遍历右子树，然后访问当前节点。</li>
+<li><strong>顺序</strong>：左子树 → 右子树 → 根节点。</li>
+</ul>
+<h3 id="层次遍历-Level-Order-Traversal"><a href="#层次遍历-Level-Order-Traversal" class="headerlink" title="层次遍历 (Level Order Traversal)"></a>层次遍历 (Level Order Traversal)</h3><ul>
+<li><strong>步骤</strong>：按层级遍历树的节点，通常使用队列来实现。</li>
+<li><strong>顺序</strong>：根节点 → 第一层 → 第二层 → 第三层 → ……直到最后一层。</li>
+</ul>
+<h2 id="树的应用"><a href="#树的应用" class="headerlink" title="树的应用"></a>树的应用</h2><p>树作为一种数据结构，有许多实际应用，常见的包括：</p>
+<ul>
+<li><strong>文件系统</strong>：文件和目录组织成树形结构，根目录是树的根节点，文件和文件夹是节点。</li>
+<li><strong>数据库索引</strong>：树结构（如B树、B+树）常用于数据库的索引，帮助快速查找数据。</li>
+<li><strong>游戏决策树</strong>：用于表示游戏中的可能决策路径。</li>
+</ul>
+<hr>
+<h2 id="二叉查找树（Binary-Search-Tree-BST）"><a href="#二叉查找树（Binary-Search-Tree-BST）" class="headerlink" title="二叉查找树（Binary Search Tree, BST）"></a>二叉查找树（Binary Search Tree, BST）</h2><h3 id="定义"><a href="#定义" class="headerlink" title="定义"></a>定义</h3><p>二叉查找树是一种特殊的二叉树，满足以下性质：</p>
+<ul>
+<li>每个节点最多有两个子节点。</li>
+<li>左子树中所有节点的值小于根节点。</li>
+<li>右子树中所有节点的值大于根节点。</li>
+<li>每一棵子树也都是一棵二叉查找树。</li>
+</ul>
+<h3 id="操作"><a href="#操作" class="headerlink" title="操作"></a>操作</h3><p><strong>查找（Search）</strong></p>
+<p>从根节点开始：</p>
+<ul>
+<li>如果目标值等于当前节点，返回。</li>
+<li>如果目标值小于当前节点，进入左子树。</li>
+<li>如果目标值大于当前节点，进入右子树。</li>
+</ul>
+<p>查找的时间复杂度与树的高度有关，最坏是 O(n)，最优是 O(log n)。</p>
+<p><strong>插入（Insert）</strong></p>
+<p>插入值时，按查找路径向下走，找到空位插入即可，不会破坏 BST 结构。</p>
+<p><strong>删除（Delete）</strong></p>
+<p>分三种情况处理：</p>
+<ol>
+<li>删除叶子节点，直接删除。</li>
+<li>删除只有一个子节点的节点，用子节点替换该节点。</li>
+<li>删除有两个子节点的节点，找到该节点的中序后继或中序前驱，用它的值替换当前节点，再删除那个节点。</li>
+</ol>
+<h3 id="问题：BST-可能退化成链表"><a href="#问题：BST-可能退化成链表" class="headerlink" title="问题：BST 可能退化成链表"></a>问题：BST 可能退化成链表</h3><p>如果连续插入有序数据，例如 1、2、3、4、5，树就会变成单边链表，导致查找效率退化为 O(n)。</p>
+<p>为了解决这个问题，就需要引入“自平衡”的机制，也就是平衡二叉树。</p>
+<hr>
+<h2 id="平衡二叉树的基本思想"><a href="#平衡二叉树的基本思想" class="headerlink" title="平衡二叉树的基本思想"></a>平衡二叉树的基本思想</h2><h3 id="什么是平衡"><a href="#什么是平衡" class="headerlink" title="什么是平衡"></a>什么是平衡</h3><p>树的高度决定了查找、插入、删除的效率。所谓平衡，是指尽量保持每个节点的左右子树高度差不要太大，避免形成单边长链。</p>
+<p>平衡树的目标是让树的高度保持在 O(log n) 以内，从而提高整体性能。</p>
+<h3 id="平衡的实现手段：旋转操作"><a href="#平衡的实现手段：旋转操作" class="headerlink" title="平衡的实现手段：旋转操作"></a>平衡的实现手段：旋转操作</h3><p>当插入或删除节点后导致失衡，可以通过旋转操作让树重新平衡。</p>
+<p><strong>左旋</strong></p>
+<p>将某个节点的右子节点提升为新的父节点，原父节点变为其左子节点。</p>
+<p>例子： 节点 A 有右子节点 B，B 再有右子节点 C</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">原始结构：</span><br><span class="line">    A</span><br><span class="line">     \</span><br><span class="line">      B</span><br><span class="line">       \</span><br><span class="line">        C</span><br><span class="line"></span><br><span class="line">左旋后：</span><br><span class="line">    B</span><br><span class="line">   / \</span><br><span class="line">  A   C</span><br></pre></td></tr></table></figure>
+
+<p><strong>右旋</strong></p>
+<p>将某个节点的左子节点提升为新的父节点，原父节点变为其右子节点。</p>
+<p>例子： 节点 C 有左子节点 B，B 再有左子节点 A</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">原始结构：</span><br><span class="line">    C</span><br><span class="line">   /</span><br><span class="line">  B</span><br><span class="line"> /</span><br><span class="line">A</span><br><span class="line"></span><br><span class="line">右旋后：</span><br><span class="line">    B</span><br><span class="line">   / \</span><br><span class="line">  A   C</span><br></pre></td></tr></table></figure>
+
+<p>通过这些旋转，可以动态调整树结构，使其保持平衡。</p>
+<hr>
+<h2 id="红黑树简介"><a href="#红黑树简介" class="headerlink" title="红黑树简介"></a>红黑树简介</h2><p>红黑树是自平衡的二叉查找树，它使用颜色和旋转来控制树的高度。</p>
+<p>红黑树不是严格平衡的，但它能保证最长路径不会超过最短路径的两倍，因此效率稳定。</p>
+<h3 id="红黑树的五个性质"><a href="#红黑树的五个性质" class="headerlink" title="红黑树的五个性质"></a>红黑树的五个性质</h3><ol>
+<li>每个节点是红色或黑色。</li>
+<li>根节点必须是黑色。</li>
+<li>所有叶子节点（NIL 节点）是黑色。</li>
+<li>如果一个节点是红色的，则它的两个子节点必须是黑色的（不能连续两个红色节点）。</li>
+<li>从任意节点到其所有叶子节点的路径上，包含的黑色节点数量必须相同。</li>
+</ol>
+<p>这些性质共同保证了树的平衡性。</p>
+<hr>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>普通二叉查找树查找效率依赖于树高，可能退化成链表。</li>
+<li>平衡二叉树通过旋转操作保持结构平衡，提升查找、插入、删除性能。</li>
+<li>红黑树是一种宽松的平衡树，通过颜色约束加旋转来维持近似平衡。</li>
+<li>红黑树是很多底层库和系统（如 Java TreeMap、C++ STL、Linux 内核）使用的高效结构。</li>
+</ul>
+<hr>
+<h1 id="红黑树与-AVL-性能对比，如何选型"><a href="#红黑树与-AVL-性能对比，如何选型" class="headerlink" title="红黑树与 AVL 性能对比，如何选型"></a>红黑树与 AVL 性能对比，如何选型</h1><p>这是一个很实用、也很容易被误解的问题。我们来进行一次<strong>实事求是</strong>的对比，站在工程实践的角度，讲清楚 <strong>红黑树 vs AVL 树 的性能差异、适用场景、优缺点、如何选型</strong>。</p>
+<hr>
+<h2 id="红黑树与-AVL-树的核心差异"><a href="#红黑树与-AVL-树的核心差异" class="headerlink" title="红黑树与 AVL 树的核心差异"></a>红黑树与 AVL 树的核心差异</h2><table>
+<thead>
+<tr>
+<th>比较点</th>
+<th>AVL 树</th>
+<th>红黑树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>平衡性</td>
+<td>严格平衡（左右子树高度差 ≤ 1）</td>
+<td>相对平衡（通过颜色规则控制）</td>
+</tr>
+<tr>
+<td>插入效率</td>
+<td>较慢，可能频繁旋转</td>
+<td>较快，旋转次数更少</td>
+</tr>
+<tr>
+<td>删除效率</td>
+<td>更慢（容易失衡）</td>
+<td>更快（更容忍不平衡）</td>
+</tr>
+<tr>
+<td>查找效率</td>
+<td>稍快（更矮更“紧凑”）</td>
+<td>稍慢（更高一些）</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>中等</td>
+<td>略高，染色逻辑更麻烦</td>
+</tr>
+<tr>
+<td>实际树高</td>
+<td>log(n)，更低</td>
+<td>最坏 2log(n)，略高但可接受</td>
+</tr>
+<tr>
+<td>应用场景</td>
+<td>查找密集</td>
+<td>插入&#x2F;删除频繁</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="时间复杂度对比（理论上相同）"><a href="#时间复杂度对比（理论上相同）" class="headerlink" title="时间复杂度对比（理论上相同）"></a>时间复杂度对比（理论上相同）</h2><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>AVL</th>
+<th>红黑树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>插入</td>
+<td>O(log n) + 最多 2 次旋转</td>
+<td>O(log n) + 最多 3 次旋转 + 染色</td>
+</tr>
+<tr>
+<td>删除</td>
+<td>O(log n) + 最多 log n 次旋转</td>
+<td>O(log n) + 最多 3 次旋转 + 染色</td>
+</tr>
+</tbody></table>
+<p><strong>注意</strong>：红黑树旋转次数少于 AVL，是因为它更“宽松”地控制平衡。</p>
+<hr>
+<h2 id="为什么工程中更常用红黑树？"><a href="#为什么工程中更常用红黑树？" class="headerlink" title="为什么工程中更常用红黑树？"></a>为什么工程中更常用红黑树？</h2><h3 id="1-插入、删除性能更稳定"><a href="#1-插入、删除性能更稳定" class="headerlink" title="1. 插入、删除性能更稳定"></a>1. 插入、删除性能更稳定</h3><p>AVL 树插入删除操作中需要频繁调整结构（旋转），因为它追求高度的平衡性。虽然这保证了查找很快，但维护成本高。</p>
+<p>红黑树采用更“保守”的平衡策略，调整动作较少，<strong>整体吞吐量更好</strong>。这在系统级开发中非常重要，比如操作系统、数据库、语言运行时。</p>
+<h3 id="2-插入-删除频率高时，红黑树吞吐量优于-AVL"><a href="#2-插入-删除频率高时，红黑树吞吐量优于-AVL" class="headerlink" title="2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVL"></a>2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVL</h3><p>AVL树适合“读多写少”的场景，比如缓存系统。</p>
+<p>红黑树适合“读写都频繁”的场景，比如内核调度、任务队列、映射表等。</p>
+<hr>
+<h2 id="实际案例对比"><a href="#实际案例对比" class="headerlink" title="实际案例对比"></a>实际案例对比</h2><h3 id="Java-TreeMap-TreeSet"><a href="#Java-TreeMap-TreeSet" class="headerlink" title="Java TreeMap &#x2F; TreeSet"></a>Java <code>TreeMap</code> &#x2F; <code>TreeSet</code></h3><ul>
+<li>使用的是 <strong>红黑树</strong> 实现</li>
+<li>原因：Java中集合类通常面对频繁插入和删除（如实时排序、排名等），红黑树性能更均衡</li>
+</ul>
+<h3 id="C-STL-的-std-map-std-set"><a href="#C-STL-的-std-map-std-set" class="headerlink" title="C++ STL 的 std::map &#x2F; std::set"></a>C++ STL 的 <code>std::map</code> &#x2F; <code>std::set</code></h3><ul>
+<li>也使用的是 <strong>红黑树</strong></li>
+<li>同样考虑的是泛型容器的插入&#x2F;删除复杂度</li>
+</ul>
+<h3 id="Linux-内核调度器-时间红黑树（RB-tree）"><a href="#Linux-内核调度器-时间红黑树（RB-tree）" class="headerlink" title="Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）"></a>Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）</h3><ul>
+<li>使用的是红黑树（见 <code>include/linux/rbtree.h</code>）</li>
+<li>因为调度器中的进程插入&#x2F;删除频繁，而查找不一定多，所以使用红黑树性能更佳</li>
+</ul>
+<hr>
+<h2 id="什么时候选-AVL-树？"><a href="#什么时候选-AVL-树？" class="headerlink" title="什么时候选 AVL 树？"></a>什么时候选 AVL 树？</h2><p>虽然工程里红黑树更常见，但 <strong>AVL 并不是没用</strong>，它在以下场景下依然有价值：</p>
+<ul>
+<li>对查找性能要求极致，数据变动频率低的场景<ul>
+<li>如<strong>内存索引、缓存服务、读密集型数据库</strong></li>
+</ul>
+</li>
+<li>数据量适中，性能压力可控，希望保证查找时间始终最优</li>
+</ul>
+<p>比如：一个静态配置中心，你预先插入一些配置项，然后主要是查找访问。用 AVL 是合理的。</p>
+<hr>
+<h2 id="工程选型建议总结"><a href="#工程选型建议总结" class="headerlink" title="工程选型建议总结"></a>工程选型建议总结</h2><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐结构</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找频繁、插入删除极少</td>
+<td>AVL</td>
+<td>查找快，保持严格平衡</td>
+</tr>
+<tr>
+<td>插入&#x2F;删除频繁，查找适中</td>
+<td>红黑树</td>
+<td>性能更均衡，旋转少</td>
+</tr>
+<tr>
+<td>需要范围查询</td>
+<td>B+树</td>
+<td>存储系统常用结构（如数据库）</td>
+</tr>
+<tr>
+<td>高并发环境下</td>
+<td>并发跳表 &#x2F; 哈希表</td>
+<td>红黑树&#x2F;AVL 不擅长并发控制</td>
+</tr>
+<tr>
+<td>内核、调度系统</td>
+<td>红黑树</td>
+<td>插入&#x2F;删除频繁，吞吐量更重要</td>
+</tr>
+<tr>
+<td>学术 &#x2F; 教学用</td>
+<td>AVL</td>
+<td>更容易推导、理解平衡原理</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="总结一句话"><a href="#总结一句话" class="headerlink" title="总结一句话"></a>总结一句话</h2><p><strong>红黑树是工业界的主流选型，因为它在保持平衡和性能之间做了非常合理的权衡。</strong></p>
+<p>而 AVL 更适合做“查找效率最优”的算法研究、教学或低变更场景。</p>
+<h1 id="B树、B-树、跳表"><a href="#B树、B-树、跳表" class="headerlink" title="B树、B+树、跳表"></a>B树、B+树、跳表</h1><p>非常好，接下来我们进入数据库&#x2F;存储系统中常用的三种结构：<strong>B树、B+树、跳表</strong>，它们都是用于<strong>范围查找、批量排序、动态插入删除</strong>等复杂需求下的数据结构。</p>
+<p>我会按这个顺序讲解：</p>
+<ol>
+<li><strong>先讲 B 树</strong>：基础结构，理解它是后续 B+ 树的前提</li>
+<li><strong>再讲 B+ 树</strong>：数据库索引、文件系统最常用结构</li>
+<li><strong>最后讲跳表</strong>：高性能内存结构，Redis 的最爱</li>
+</ol>
+<p>每一个我们都会涵盖：</p>
+<ul>
+<li>是什么（直观理解）</li>
+<li>如何组织数据</li>
+<li>查找&#x2F;插入&#x2F;删除怎么做</li>
+<li>为什么它适合某类场景</li>
+</ul>
+<hr>
+<h2 id="B-树（Balanced-Tree-多路平衡查找树）"><a href="#B-树（Balanced-Tree-多路平衡查找树）" class="headerlink" title="B 树（Balanced Tree &#x2F; 多路平衡查找树）"></a>B 树（Balanced Tree &#x2F; 多路平衡查找树）</h2><h3 id="是什么"><a href="#是什么" class="headerlink" title="是什么"></a>是什么</h3><p>B 树是一种<strong>多路搜索树</strong>，是对二叉搜索树的推广。每个节点不仅可以有两个子节点，而是可以有多个。<br>广泛用于<strong>磁盘存储、数据库索引结构</strong>中，因为它减少了磁盘读写次数。</p>
+<h3 id="特点"><a href="#特点" class="headerlink" title="特点"></a>特点</h3><ul>
+<li>每个节点最多有 <code>m-1</code> 个数据项，<code>m</code> 个子指针（m 是阶数）</li>
+<li>所有节点的关键字保持有序</li>
+<li>插入、删除后依然保持平衡</li>
+<li>所有叶子节点在同一层（树高固定）</li>
+</ul>
+<h3 id="举例（以3阶-B-树为例）"><a href="#举例（以3阶-B-树为例）" class="headerlink" title="举例（以3阶 B 树为例）"></a>举例（以3阶 B 树为例）</h3><ul>
+<li>一个节点最多 2 个键，最多有 3 个子节点</li>
+<li>比如节点中有 [10, 20]，它的子树范围：<ul>
+<li>子树1：小于 10</li>
+<li>子树2：10~20</li>
+<li>子树3：大于 20</li>
+</ul>
+</li>
+</ul>
+<h3 id="查找"><a href="#查找" class="headerlink" title="查找"></a>查找</h3><p>和二分查找类似：</p>
+<ul>
+<li>从根节点开始，在节点中查找关键字位置（可以使用二分）</li>
+<li>找不到则沿对应子树向下</li>
+</ul>
+<p>时间复杂度为 O(log n)，<strong>但每一层“跨度大”，所以树的高度更低，查找更快</strong></p>
+<h3 id="插入"><a href="#插入" class="headerlink" title="插入"></a>插入</h3><ul>
+<li>找到插入位置，插入键</li>
+<li>如果节点已满，就<strong>分裂节点</strong>，中间值“上提”到父节点</li>
+<li>插入可能从叶子一路调整到根节点，最多增加一层高度</li>
+</ul>
+<h3 id="删除"><a href="#删除" class="headerlink" title="删除"></a>删除</h3><ul>
+<li>类似 BST，找到值删掉</li>
+<li>如果节点删除后不满足最小关键字数量，就需要<strong>向兄弟借值或合并节点</strong></li>
+<li>复杂度 O(log n)</li>
+</ul>
+<h3 id="应用场景"><a href="#应用场景" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
+<li>MySQL 的 MyISAM 引擎使用的是 <strong>B 树索引</strong></li>
+<li>适合中等范围查询、单点查找、插入删除都频繁的磁盘结构</li>
+</ul>
+<hr>
+<h2 id="B-树（B-Tree-的增强版）"><a href="#B-树（B-Tree-的增强版）" class="headerlink" title="B+ 树（B Tree 的增强版）"></a>B+ 树（B Tree 的增强版）</h2><h3 id="是什么-1"><a href="#是什么-1" class="headerlink" title="是什么"></a>是什么</h3><p>B+ 树是 B 树的一个变种，<strong>所有值都存在叶子节点</strong>，非叶子节点只做“导航”。</p>
+<p><strong>MySQL InnoDB、文件系统、LevelDB 等都使用 B+ 树作为索引结构。</strong></p>
+<h3 id="和-B-树的区别"><a href="#和-B-树的区别" class="headerlink" title="和 B 树的区别"></a>和 B 树的区别</h3><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>B 树</th>
+<th>B+ 树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数据存储</td>
+<td>所有节点存数据</td>
+<td>只有叶子节点存数据</td>
+</tr>
+<tr>
+<td>内部节点</td>
+<td>数据 + 导航</td>
+<td>仅导航（索引）</td>
+</tr>
+<tr>
+<td>查找路径</td>
+<td>可提前终止</td>
+<td>一定走到叶子节点</td>
+</tr>
+<tr>
+<td>范围查询</td>
+<td>差</td>
+<td>强（叶子节点有链表）</td>
+</tr>
+</tbody></table>
+<h3 id="特点-1"><a href="#特点-1" class="headerlink" title="特点"></a>特点</h3><ul>
+<li>所有叶子节点通过链表串起来，方便范围查询</li>
+<li>非叶子节点只做索引，节省空间，<strong>扇出更高，树更矮</strong></li>
+<li>结构更适合磁盘块对齐，减少 IO 次数</li>
+</ul>
+<h3 id="查找-1"><a href="#查找-1" class="headerlink" title="查找"></a>查找</h3><ul>
+<li>和 B 树类似，但一定查到叶子节点才能拿到数据</li>
+<li>路径更统一，便于实现</li>
+</ul>
+<h3 id="范围查询"><a href="#范围查询" class="headerlink" title="范围查询"></a>范围查询</h3><ul>
+<li>特别高效，只需要找到范围起点，然后从链表顺着读下去即可</li>
+</ul>
+<h3 id="应用场景-1"><a href="#应用场景-1" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
+<li><strong>数据库索引（MySQL InnoDB）</strong></li>
+<li><strong>文件系统（如 NTFS, XFS）</strong></li>
+<li>批量范围读取、数据分页、高并发写场景</li>
+</ul>
+<hr>
+<h2 id="跳表（Skip-List）"><a href="#跳表（Skip-List）" class="headerlink" title="跳表（Skip List）"></a>跳表（Skip List）</h2><h3 id="是什么-2"><a href="#是什么-2" class="headerlink" title="是什么"></a>是什么</h3><p>跳表是一种通过在链表上建立多级索引的方式实现快速查找的数据结构。</p>
+<p>你可以理解为：<strong>链表 + 多层快速通道</strong>，是“概率化”实现的平衡树。</p>
+<h3 id="结构"><a href="#结构" class="headerlink" title="结构"></a>结构</h3><ul>
+<li>底层是有序链表（维护所有元素）</li>
+<li>每一层随机选取一些节点参与“快速通道”</li>
+<li>每一层都是下一层的子集，最顶层最稀疏</li>
+</ul>
+<p>比如有 16 个节点，可能层结构像这样：</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">Level 3:      A --------- H</span><br><span class="line">Level 2:      A ---- E -- H -- M</span><br><span class="line">Level 1: A - B - C - D - E - F - G - H - I - ... - P</span><br></pre></td></tr></table></figure>
+
+<h3 id="查找-2"><a href="#查找-2" class="headerlink" title="查找"></a>查找</h3><ul>
+<li>从顶层开始，逐层往下，直到定位到目标位置</li>
+<li>每次跳跃跨度大，大大加快查找速度</li>
+</ul>
+<p>平均时间复杂度：O(log n)</p>
+<h3 id="插入-删除"><a href="#插入-删除" class="headerlink" title="插入 &#x2F; 删除"></a>插入 &#x2F; 删除</h3><ul>
+<li>插入新节点后，按概率决定它会出现在多少层（比如 Redis 是1&#x2F;4 概率上升一层）</li>
+<li>删除也是先找到节点，再清理所有层级中的引用</li>
+</ul>
+<p>时间复杂度：O(log n)</p>
+<h3 id="应用场景-2"><a href="#应用场景-2" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
+<li><strong>Redis 的 zset（有序集合）使用跳表实现</strong></li>
+<li>比树更容易实现，适合内存结构、并发场景</li>
+<li>查找、插入、删除都非常高效</li>
+<li>不需要复杂的旋转、维护，代码比平衡树更简单</li>
+</ul>
+<hr>
+<h2 id="三者对比总结"><a href="#三者对比总结" class="headerlink" title="三者对比总结"></a>三者对比总结</h2><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>B 树</th>
+<th>B+ 树</th>
+<th>跳表</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找效率</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>插入&#x2F;删除</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>O(log n)（更简单）</td>
+</tr>
+<tr>
+<td>是否适合磁盘</td>
+<td>是</td>
+<td>是（最佳）</td>
+<td>否，适合内存</td>
+</tr>
+<tr>
+<td>是否适合范围查询</td>
+<td>一般</td>
+<td>强（链表）</td>
+<td>强（链表）</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>中</td>
+<td>中高</td>
+<td>低（逻辑简单）</td>
+</tr>
+<tr>
+<td>工程应用</td>
+<td>MyISAM索引</td>
+<td>InnoDB索引，文件系统</td>
+<td>Redis zset、有序内存结构</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="总结建议"><a href="#总结建议" class="headerlink" title="总结建议"></a>总结建议</h2><ul>
+<li><strong>数据库磁盘索引</strong>：使用 B+ 树。查找、范围查询快，IO次数少，MySQL&#x2F;Oracle&#x2F;SQLite都用它。</li>
+<li><strong>键值对内存结构（Redis）</strong>：用跳表。简单好用，查找&#x2F;插入性能稳定。</li>
+<li><strong>老的存储结构或小范围索引</strong>：B 树也能用，但现在基本被 B+ 树取代。</li>
+</ul>
+<hr>
+<h2 id="B树和B-树对比"><a href="#B树和B-树对比" class="headerlink" title="B树和B+树对比"></a>B树和B+树对比</h2><ul>
+<li><strong>B树</strong> 和 <strong>B+树</strong> 都是自平衡的多路查找树，它们通过分支节点和数据节点组织数据，确保了对大规模数据的高效查找。</li>
+<li><strong>B+树</strong> 相比于 <strong>B树</strong>，更加高效，特别是在 <strong>范围查询</strong> 和 <strong>顺序访问</strong> 上，因此在数据库和文件系统中，B+树的应用更加广泛。</li>
+<li><strong>B树</strong> 适合需要 <strong>较少的范围查询</strong> 或 <strong>较均衡的查找操作</strong> 的场景，而 <strong>B+树</strong> 更适合 <strong>大规模数据存储、范围查询和顺序扫描</strong> 的场景。</li>
+</ul>
+<hr>
+<h1 id="什么是-AVL-树？"><a href="#什么是-AVL-树？" class="headerlink" title="什么是 AVL 树？"></a>什么是 AVL 树？</h1><p><strong>AVL 树</strong> 是一种 <strong>自平衡的二叉查找树（Binary Search Tree, BST）</strong>，它的全称是：</p>
+<p><strong>Adelson-Velsky and Landis Tree</strong><br>由两位苏联科学家在 1962 年提出，是世界上第一个自平衡二叉查找树。</p>
+<hr>
+<h2 id="AVL-树的核心特性"><a href="#AVL-树的核心特性" class="headerlink" title="AVL 树的核心特性"></a>AVL 树的核心特性</h2><h3 id="自平衡的定义"><a href="#自平衡的定义" class="headerlink" title="自平衡的定义"></a>自平衡的定义</h3><p>对于 <strong>树中的每一个节点</strong>，都必须满足：</p>
+<p><strong>左子树和右子树的高度差 ≤ 1</strong></p>
+<p>这个高度差我们称为该节点的 <strong>平衡因子（Balance Factor）</strong>，它的取值只能是：</p>
+<ul>
+<li>-1（右子树比左子树高一层）</li>
+<li>0（左右等高）</li>
+<li>+1（左子树比右子树高一层）</li>
+</ul>
+<p>一旦插入或删除节点后某个节点的平衡因子超过这个范围（比如变成了 2 或 -2），就需要<strong>通过旋转操作来恢复平衡</strong>。</p>
+<hr>
+<h2 id="为什么需要-AVL-树？"><a href="#为什么需要-AVL-树？" class="headerlink" title="为什么需要 AVL 树？"></a>为什么需要 AVL 树？</h2><p>普通的二叉查找树（BST）在最坏情况下会退化成链表，导致操作效率变为 O(n)。<br>而 AVL 树通过强制控制“平衡因子”，保持<strong>树高度为 O(log n)</strong>，确保：</p>
+<ul>
+<li>查找（Search）</li>
+<li>插入（Insert）</li>
+<li>删除（Delete）</li>
+</ul>
+<p>这些操作都能在对数时间内完成。</p>
+<hr>
+<h2 id="AVL-树的旋转操作"><a href="#AVL-树的旋转操作" class="headerlink" title="AVL 树的旋转操作"></a>AVL 树的旋转操作</h2><h3 id="单旋（Single-Rotation）"><a href="#单旋（Single-Rotation）" class="headerlink" title="单旋（Single Rotation）"></a>单旋（Single Rotation）</h3><ol>
+<li><strong>右旋（Right Rotation）</strong><br>用于左子树过高（LL 失衡）</li>
+<li><strong>左旋（Left Rotation）</strong><br>用于右子树过高（RR 失衡）</li>
+</ol>
+<h3 id="双旋（Double-Rotation）"><a href="#双旋（Double-Rotation）" class="headerlink" title="双旋（Double Rotation）"></a>双旋（Double Rotation）</h3><ol>
+<li><strong>先左旋再右旋（Left-Right Rotation）</strong><br>用于插入到左子树的右子树（LR 型失衡）</li>
+<li><strong>先右旋再左旋（Right-Left Rotation）</strong><br>用于插入到右子树的左子树（RL 型失衡）</li>
+</ol>
+<hr>
+<h2 id="操作复杂度"><a href="#操作复杂度" class="headerlink" title="操作复杂度"></a>操作复杂度</h2><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>时间复杂度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>插入</td>
+<td>O(log n)（可能旋转）</td>
+</tr>
+<tr>
+<td>删除</td>
+<td>O(log n)（可能多次旋转）</td>
+</tr>
+</tbody></table>
+<p>AVL 树高度非常低，接近 log₂(n)，因此查找性能极优。</p>
+<hr>
+<h2 id="示例"><a href="#示例" class="headerlink" title="示例"></a>示例</h2><p>假设我们依次插入以下节点：10 → 20 → 30</p>
+<p>普通 BST 结构变成：</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">10</span><br><span class="line">  \</span><br><span class="line">   20</span><br><span class="line">     \</span><br><span class="line">      30</span><br></pre></td></tr></table></figure>
+
+<p>此时树高度为 3，已经失衡，AVL 会做一次左旋，变成：</p>
+<figure class="highlight plaintext"><table><tr><td class="code"><pre><span class="line">20</span><br><span class="line">   /  \</span><br><span class="line">  10  30</span><br></pre></td></tr></table></figure>
+
+<p>保持了平衡。</p>
+<hr>
+<h2 id="AVL-树-vs-红黑树"><a href="#AVL-树-vs-红黑树" class="headerlink" title="AVL 树 vs 红黑树"></a>AVL 树 vs 红黑树</h2><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>AVL 树</th>
+<th>红黑树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>平衡程度</td>
+<td>更严格（左右子树高差 ≤ 1）</td>
+<td>较宽松（限制黑节点数目）</td>
+</tr>
+<tr>
+<td>插入&#x2F;删除效率</td>
+<td>较慢，旋转多</td>
+<td>较快，旋转少</td>
+</tr>
+<tr>
+<td>查找效率</td>
+<td>稍快</td>
+<td>稍慢</td>
+</tr>
+<tr>
+<td>实际应用</td>
+<td>内存查找、读多写少</td>
+<td>系统结构、写操作多</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>中</td>
+<td>高</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="适用场景"><a href="#适用场景" class="headerlink" title="适用场景"></a>适用场景</h2><ul>
+<li>查找频率高，插入&#x2F;删除少的场景，如内存中的索引结构</li>
+<li>不适合频繁更新的场景，因为每次插入&#x2F;删除都可能触发旋转</li>
+</ul>
+<hr>
+<h1 id="B树与平衡二叉查找树的对比"><a href="#B树与平衡二叉查找树的对比" class="headerlink" title="B树与平衡二叉查找树的对比"></a>B树与平衡二叉查找树的对比</h1><table>
+<thead>
+<tr>
+<th>特性</th>
+<th><strong>B树</strong></th>
+<th><strong>平衡二叉查找树（如 AVL 树、红黑树）</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>适用场景</strong></td>
+<td>大规模数据存储，尤其是磁盘存储；数据库索引，文件系统管理</td>
+<td>内存中的动态数据存储，集合、映射、优先队列等</td>
+</tr>
+<tr>
+<td><strong>树的结构</strong></td>
+<td>多路树，每个节点有多个子节点</td>
+<td>二叉树，每个节点最多有两个子节点</td>
+</tr>
+<tr>
+<td><strong>查找性能</strong></td>
+<td>O(log n)，但通常更适合磁盘存储，减少磁盘访问次数</td>
+<td>O(log n)，在内存中查找非常高效</td>
+</tr>
+<tr>
+<td><strong>节点大小</strong></td>
+<td>每个节点包含多个键和多个子指针，适合减少磁盘访问次数</td>
+<td>每个节点只包含一个键和最多两个子指针</td>
+</tr>
+<tr>
+<td><strong>插入&#x2F;删除操作</strong></td>
+<td>节点分裂&#x2F;合并，通常需要更复杂的操作来保持平衡</td>
+<td>旋转操作，通过保持平衡因子来保证平衡</td>
+</tr>
+<tr>
+<td><strong>支持范围查询</strong></td>
+<td>非常高效，能够快速查找和遍历范围数据</td>
+<td>支持范围查询，但对于大量范围查询不如 B 树高效</td>
+</tr>
+<tr>
+<td><strong>内存与存储</strong></td>
+<td>适合外存存储，能高效处理大量数据</td>
+<td>适用于内存数据管理，数据规模适中，内存存储</td>
+</tr>
+</tbody></table>
+]]></content>
+      <tags>
+        <tag>数据结构</tag>
       </tags>
   </entry>
 </search>
