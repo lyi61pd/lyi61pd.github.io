@@ -271,8 +271,8 @@
 <p>.got 和.got.plt 统称为 GOT 表</p>
 <p>.got 里面直接存储的就是函数调用的地址，部分函数地址是直接存放在.got 里面的</p>
 <p>PLT 表指向的是.got.plt</p>
-<p>printf@plt 指向的就是 <a href="mailto:&#x70;&#114;&#105;&#x6e;&#x74;&#102;&#x40;&#103;&#x6f;&#116;&#x2e;&#x70;&#x6c;&#x74;">printf@got.plt</a></p>
-<p>第一次调用时<a href="mailto:&#x70;&#114;&#105;&#110;&#116;&#102;&#64;&#x67;&#111;&#x74;&#46;&#x70;&#x6c;&#116;">printf@got.plt</a>里指向的是 printf@plt 的下一行也就是 push printf 对应的 got 表里的序号</p>
+<p>printf@plt 指向的就是 <a href="mailto:&#112;&#114;&#x69;&#110;&#x74;&#102;&#x40;&#103;&#111;&#116;&#x2e;&#x70;&#x6c;&#x74;">printf@got.plt</a></p>
+<p>第一次调用时<a href="mailto:&#x70;&#x72;&#x69;&#x6e;&#116;&#102;&#64;&#103;&#111;&#116;&#46;&#x70;&#x6c;&#x74;">printf@got.plt</a>里指向的是 printf@plt 的下一行也就是 push printf 对应的 got 表里的序号</p>
 <p>放在.got 里的相当于.got.plt 第一次调用之后的状态</p>
 <h3 id="RELRO"><a href="#RELRO" class="headerlink" title="RELRO"></a>RELRO</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">#关闭RELRO</span><br><span class="line">gcc title.c -o title_no -z norelro</span><br><span class="line">#部分开启RELRO(Partial RELRO不加参数默认是这个)</span><br><span class="line">gcc title.c -o title_partial -z lazy</span><br><span class="line">#完全开启RELRO(Full RELRO)</span><br><span class="line">gcc title.c -o title_full -z now</span><br></pre></td></tr></table></figure>
 
