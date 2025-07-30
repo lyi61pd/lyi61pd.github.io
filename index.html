@@ -1,0 +1,265 @@
+<!DOCTYPE html><html lang="zh" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>lyi61pd - Blog</title><meta name="author" content="lyi61pd"><meta name="copyright" content="lyi61pd"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="Im gonna be the best dragon">
+<meta property="og:type" content="website">
+<meta property="og:title" content="lyi61pd">
+<meta property="og:url" content="https://lyi61pd.github.io/">
+<meta property="og:site_name" content="lyi61pd">
+<meta property="og:description" content="Im gonna be the best dragon">
+<meta property="og:locale">
+<meta property="og:image" content="https://lyi61pd.github.io/blog_imgs/avatar.png">
+<meta property="article:author" content="lyi61pd">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://lyi61pd.github.io/blog_imgs/avatar.png"><link rel="shortcut icon" href="/blog_imgs/avatar.png"><link rel="canonical" href="https://lyi61pd.github.io/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          const mediaQueryDark = window.matchMedia('(prefers-color-scheme: dark)')
+          const mediaQueryLight = window.matchMedia('(prefers-color-scheme: light)')
+
+          if (theme === undefined) {
+            if (mediaQueryLight.matches) activateLightMode()
+            else if (mediaQueryDark.matches) activateDarkMode()
+            else {
+              const hour = new Date().getHours()
+              const isNight = hour <= 6 || hour >= 18
+              isNight ? activateDarkMode() : activateLightMode()
+            }
+            mediaQueryDark.addEventListener('change', () => {
+              if (saveToLocal.get('theme') === undefined) {
+                e.matches ? activateDarkMode() : activateLightMode()
+              }
+            })
+          } else {
+            theme === 'light' ? activateLightMode() : activateDarkMode()
+          }
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.xml","preload":true,"top_n_per_article":1,"unescape":true,"languages":{"hits_empty":"No results found for: ${query}","hits_stats":"${hits} articles found"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: 'Copy Successful',
+    error: 'Copy Failed',
+    noSupport: 'Browser Not Supported'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: 'Just now',
+    min: 'minutes ago',
+    hour: 'hours ago',
+    day: 'days ago',
+    month: 'months ago'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: 'Load More'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: true
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'lyi61pd',
+  isHighlightShrink: false,
+  isToc: false,
+  pageType: 'home'
+}</script><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="lyi61pd" type="application/atom+xml">
+</head><body><div class="page" id="body-wrap"><header class="full_page" id="page-header" style="background-image: url(/blog_imgs/banner.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">lyi61pd</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> Search</span></span></div></div></nav><div id="site-info"><h1 id="site-title">lyi61pd</h1><div id="site-subtitle"><span id="subtitle"></span></div></div><div id="scroll-down"><i class="fas fa-angle-down scroll-down-effects"></i></div></header><main class="layout" id="content-inner"><div class="recent-posts nc" id="recent-posts"><div class="recent-post-items"><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/07/30/Sliver/" title="Sliver">Sliver</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-07-30T00:00:00.000Z" title="Created 2025-07-30 00:00:00">2025-07-30</time></span></div><div class="content">常用命令运行服务 虽然官方文档没提到，但是实际使用下来发现，sliver-server需要root权限，否则没法监听端口，如果使用多用户模式的话，只需要sliver-server使用root权限，sliver-client只需要普通用户权限即可  12345# 正常进入sliver-server的交互式命令行界面sliver-server# 后台跑sliver-server，适用于需要多用户的情况下，但是要先生成用户的配置文件sliver-server daemon  基础命令123456789101112131415161718192021222324252627282930313233# 生成sessiongenerate -b localhost --os linux --skip-symbols --debug -s temp/# 生成beacongenerate beacon -b localhost --skip-symbols --debug -j 1 -S 5 --os linux# 查看生成的beacon和sessionimplants#...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/07/07/%E6%B1%87%E7%BC%96/" title="汇编">汇编</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-07-07T00:00:00.000Z" title="Created 2025-07-07 00:00:00">2025-07-07</time></span></div><div class="content">针对amd架构的汇编有Intel和AT&amp;T两种语法， 下面的介绍都是以Intel语法为主进行说明，主要是针对的系统是System V ABI，Linux，也是目前主流的情况 寄存器通用寄存器   名称 用途简述    RAX 主累加器（函数返回值）   RBX 基址寄存器   RCX 循环计数、参数寄存器   RDX 乘法&#x2F;除法辅助、参数   RSI 源索引（字符串操作）   RDI 目标索引，函数第一个参数   RBP 栈基址（Base Pointer）   RSP 栈顶指针（Stack Pointer）   R8 新增参数寄存器   R9 新增参数寄存器   R10 通用   R11 通用   R12 通用   R13 通用   R14 通用   R15 通用   特殊的寄存器   寄存器 说明    RIP 指令指针寄存器（程序计数器）   RSP 栈顶指针   RBP 栈帧基址   RFLAGS 状态标志寄存器   位宽访问每个 64 位寄存器都可以访问其低位部分。以 RAX...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/06/30/Git/" title="Git">Git</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-06-30T00:00:00.000Z" title="Created 2025-06-30 00:00:00">2025-06-30</time></span></div><div class="content">初始化新建仓库直接复制gitlab的，稍微改了点，还是待优化 123456789101112131415161718192021222324252627282930# Git global setupgit config --global user.name &quot;xxx&quot;git config --global user.email &quot;xxx&quot;# Create a new repositorygit clone xxxxcd uscangit switch -c maintouch README.mdgit add README.mdgit commit -m &quot;add README&quot;git push -u origin main# Push an existing foldercd existing_foldergit initgit checkout -b maingit remote add origin xxxxxxgit add .git commit -m &quot;Initial...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/04/22/Python/" title="Python">Python</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-04-22T00:00:00.000Z" title="Created 2025-04-22 00:00:00">2025-04-22</time></span></div><div class="content">引用与非引用类型Python中的引用类型与非引用类型在Python中，数据类型可以分为引用类型（可变类型）和非引用类型（不可变类型）。它们在内存中的存储方式和函数传参时的行为有明显的区别。 引用类型与非引用类型引用类型（可变类型）引用类型是指那些在内存中可以被修改的对象。常见的引用类型包括：  列表（List） 字典（Dict） 集合（Set）  这些类型的对象在创建后，其内容是可以修改的。对于这些类型的数据，当它们作为函数参数传递时，实际上传递的是对象的引用（即内存地址）。因此，在函数内对该对象进行修改时，原始对象的内容会发生变化。 示例： 123456def modify_list(my_list):    my_list.append(4)  # 修改传入的列表lst = [1, 2, 3]modify_list(lst)print(lst)  # 输出：[1, 2, 3,...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/04/17/CVE-2021-3156/" title="CVE-2021-3156">CVE-2021-3156</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-04-17T00:00:00.000Z" title="Created 2025-04-17 00:00:00">2025-04-17</time></span></div><div class="content">漏洞原理在sudo的parse_args()函数中，重写了argv，将命令行的参数存储到cmnd中(587-595行)，将参数中的字母数字_-$以外的字符，也就是元字符，前面加上反斜杠\来转义处理（590-591行） 123456789101112131415161718192021222324252627282930571     if (ISSET(mode, MODE_RUN) &amp;&amp; ISSET(flags, MODE_SHELL)) &#123; 572         char **av, *cmnd = NULL; 573         int ac = 1; ... 581             cmnd = dst = reallocarray(NULL, cmnd_size, 2); ... 			// 将命令行的参数存储到dst,即cmnd中587             for (av = argv; *av != NULL; av++) &#123; 588                 for (src = *av; *src...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/04/17/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" title="操作系统">操作系统</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-04-17T00:00:00.000Z" title="Created 2025-04-17 00:00:00">2025-04-17</time></span></div><div class="content">操作系统的基本概念什么是操作系统操作系统（Operating System，简称 OS）是管理计算机硬件和软件资源的系统程序，是用户与硬件之间的中介。它负责管理 CPU、内存、磁盘、外设等资源，调度任务的执行，并为应用程序提供统一的接口。 常见的操作系统包括 Linux、Windows、macOS、Android、iOS 等。不同的操作系统在用户体验、系统结构和调度策略上各有差异，但其核心机制大体相似。  操作系统的主要功能进程管理进程是正在运行的程序实例。操作系统负责创建、调度、终止进程，并提供进程间通信（IPC）机制。多进程系统可以并发运行多个任务，提高资源利用率。 内存管理操作系统需要管理所有程序的内存空间，避免冲突，并提供抽象的虚拟地址空间，使得每个程序看似拥有完整的内存。分页、分段、交换空间（Swap）等技术常用于内存管理。 文件系统文件系统是组织和存储数据的结构方式。它定义了文件的命名、权限、目录结构、读写方式等。常见的文件系统包括 FAT32、NTFS、ext4...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/04/16/%E7%BD%91%E7%BB%9C/" title="网络">网络</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-04-16T00:00:00.000Z" title="Created 2025-04-16 00:00:00">2025-04-16</time></span></div><div class="content">概述计算机网络是一组通过通信链路互相连接的计算设备，它们之间可以进行数据传输、信息共享与远程控制。现在使用的手机、电脑和服务器之间的所有数据交换，都依赖计算机网络的支持。 网络不只是“上网”，而是一整套庞大而复杂的通信机制。为了规范这套机制，人们制定了大量的“网络协议”，这些协议就像交通规则，定义了数据如何发送、接收、确认、重传等等。 整个网络通信体系可以理解为一个“层级架构”，常见的是“五层网络模型”，它从上到下分为：  应用层：你直接接触的网络服务，比如浏览器、微信、QQ 等。 传输层：保障数据可靠或高效传输的机制，代表协议有 TCP、UDP。 网络层：负责选择数据传输路径，代表协议是...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/04/11/CVE-2022-0847/" title="CVE-2022-0847">CVE-2022-0847</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-04-11T00:00:00.000Z" title="Created 2025-04-11 00:00:00">2025-04-11</time></span></div><div class="content">...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/04/11/Clickhouse/" title="Clickhouse">Clickhouse</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-04-11T00:00:00.000Z" title="Created 2025-04-11 00:00:00">2025-04-11</time></span></div><div class="content">ClickHouse的架构与设计理念ClickHouse的整体架构概览ClickHouse 是一个开源的列式数据库，由 Yandex 开发，专为 在线分析处理（OLAP） 场景而设计。它的架构设计强调 高吞吐、低延迟 和 可横向扩展。 架构核心组件  Server 节点 ClickHouse 的基本运行单位是一个服务进程（通常是一个 clickhouse-server 实例），它负责处理客户端请求、执行查询、管理存储等。   表引擎（Table Engines） 表的存储和管理依赖引擎，最核心的是 MergeTree 及其衍生类型（如 ReplacingMergeTree、SummingMergeTree）。 每种引擎定义了数据如何存储、如何合并、如何处理TTL等规则。   查询引擎（Query Processor） 查询经过解析器 → 分析器 → 优化器 → 执行器的层层处理。 查询最终会被向量化处理，高效执行。   分布式支持 通过 Distributed 表引擎实现横向扩展，支持分布式存储与查询。 使用 ZooKeeper...</div></div></div><div class="recent-post-item"><div class="recent-post-info no-cover"><a class="article-title" href="/2025/04/11/Debian%E8%BD%AF%E4%BB%B6%E5%8C%85%E5%92%8C%E4%BB%93%E5%BA%93%E8%A7%84%E8%8C%83/" title="Debian软件包和仓库规范">Debian软件包和仓库规范</a><div class="article-meta-wrap"><span class="post-meta-date"><i class="far fa-calendar-alt"></i><span class="article-meta-label">Created</span><time datetime="2025-04-11T00:00:00.000Z" title="Created 2025-04-11 00:00:00">2025-04-11</time></span></div><div class="content">版本号 deb-version(5)  Debian Policy...</div></div></div></div><nav id="pagination"><div class="pagination"><span class="page-number current">1</span><a class="page-number" href="/page/2/#content-inner">2</a><a class="extend next" rel="next" href="/page/2/#content-inner"><i class="fas fa-chevron-right fa-fw"></i></a></div></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/blog_imgs/avatar.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">lyi61pd</div><div class="author-info-description">Im gonna be the best dragon</div><div class="site-data"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">16</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">17</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">0</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/lyi61pd"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="sticky_layout"><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>Recent Posts</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/07/30/Sliver/" title="Sliver">Sliver</a><time datetime="2025-07-30T00:00:00.000Z" title="Created 2025-07-30 00:00:00">2025-07-30</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/07/07/%E6%B1%87%E7%BC%96/" title="汇编">汇编</a><time datetime="2025-07-07T00:00:00.000Z" title="Created 2025-07-07 00:00:00">2025-07-07</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/06/30/Git/" title="Git">Git</a><time datetime="2025-06-30T00:00:00.000Z" title="Created 2025-06-30 00:00:00">2025-06-30</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/04/22/Python/" title="Python">Python</a><time datetime="2025-04-22T00:00:00.000Z" title="Created 2025-04-22 00:00:00">2025-04-22</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/04/17/CVE-2021-3156/" title="CVE-2021-3156">CVE-2021-3156</a><time datetime="2025-04-17T00:00:00.000Z" title="Created 2025-04-17 00:00:00">2025-04-17</time></div></div></div></div><div class="card-widget card-tags"><div class="item-headline"><i class="fas fa-tags"></i><span>Tags</span></div><div class="card-tag-cloud"><a href="/tags/%E7%BD%91%E7%BB%9C/" style="font-size: 1.1em; color: #999">网络</a> <a href="/tags/Git/" style="font-size: 1.1em; color: #999">Git</a> <a href="/tags/%E6%B1%87%E7%BC%96/" style="font-size: 1.1em; color: #999">汇编</a> <a href="/tags/Python/" style="font-size: 1.1em; color: #999">Python</a> <a href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/" style="font-size: 1.1em; color: #999">数据结构</a> <a href="/tags/Linux-Kernel/" style="font-size: 1.1em; color: #999">Linux Kernel</a> <a href="/tags/Mysql/" style="font-size: 1.1em; color: #999">Mysql</a> <a href="/tags/%E6%BC%8F%E6%B4%9E%E5%88%86%E6%9E%90/" style="font-size: 1.5em; color: #99a9bf">漏洞分析</a> <a href="/tags/C2/" style="font-size: 1.5em; color: #99a9bf">C2</a> <a href="/tags/%E5%AE%89%E5%85%A8/" style="font-size: 1.1em; color: #999">安全</a> <a href="/tags/Clickhouse/" style="font-size: 1.1em; color: #999">Clickhouse</a> <a href="/tags/Linux/" style="font-size: 1.5em; color: #99a9bf">Linux</a> <a href="/tags/%E9%97%B2%E8%AF%9D/" style="font-size: 1.1em; color: #999">闲话</a> <a href="/tags/%E6%93%8D%E4%BD%9C%E7%B3%BB%E7%BB%9F/" style="font-size: 1.1em; color: #999">操作系统</a> <a href="/tags/%E4%BA%8C%E8%BF%9B%E5%88%B6/" style="font-size: 1.1em; color: #999">二进制</a> <a href="/tags/%E6%BC%8F%E6%B4%9E%E5%A4%8D%E7%8E%B0/" style="font-size: 1.5em; color: #99a9bf">漏洞复现</a> <a href="/tags/Redis/" style="font-size: 1.1em; color: #999">Redis</a></div></div><div class="card-widget card-archives">
+    <div class="item-headline">
+      <i class="fas fa-archive"></i>
+      <span>Archives</span>
+      
+    </div>
+  
+    <ul class="card-archive-list">
+      
+        <li class="card-archive-list-item">
+          <a class="card-archive-list-link" href="/archives/2025/07/">
+            <span class="card-archive-list-date">
+              July 2025
+            </span>
+            <span class="card-archive-list-count">2</span>
+          </a>
+        </li>
+      
+        <li class="card-archive-list-item">
+          <a class="card-archive-list-link" href="/archives/2025/06/">
+            <span class="card-archive-list-date">
+              June 2025
+            </span>
+            <span class="card-archive-list-count">1</span>
+          </a>
+        </li>
+      
+        <li class="card-archive-list-item">
+          <a class="card-archive-list-link" href="/archives/2025/04/">
+            <span class="card-archive-list-date">
+              April 2025
+            </span>
+            <span class="card-archive-list-count">12</span>
+          </a>
+        </li>
+      
+        <li class="card-archive-list-item">
+          <a class="card-archive-list-link" href="/archives/2025/03/">
+            <span class="card-archive-list-date">
+              March 2025
+            </span>
+            <span class="card-archive-list-count">1</span>
+          </a>
+        </li>
+      
+    </ul>
+  </div><div class="card-widget card-webinfo"><div class="item-headline"><i class="fas fa-chart-line"></i><span>Website Info</span></div><div class="webinfo"><div class="webinfo-item"><div class="item-name">Article Count :</div><div class="item-count">16</div></div><div class="webinfo-item"><div class="item-name">Unique Visitors :</div><div class="item-count" id="busuanzi_value_site_uv"><i class="fa-solid fa-spinner fa-spin"></i></div></div><div class="webinfo-item"><div class="item-name">Page Views :</div><div class="item-count" id="busuanzi_value_site_pv"><i class="fa-solid fa-spinner fa-spin"></i></div></div><div class="webinfo-item"><div class="item-name">Last Update :</div><div class="item-count" id="last-push-date" data-lastPushDate="2025-07-30T03:41:22.295Z"><i class="fa-solid fa-spinner fa-spin"></i></div></div></div></div></div></div></main><footer id="footer" style="background-image: url(/blog_imgs/banner.png);"><div id="footer-wrap"><div class="copyright">&copy;2019 - 2025 By lyi61pd</div><div class="framework-info"><span>Framework </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>Theme </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="darkmode" type="button" title="Toggle Between Light and Dark Mode"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="Toggle Between Single-column and Double-column"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="Settings"><i class="fas fa-cog fa-spin"></i></button><button id="go-up" type="button" title="Back to Top"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><div class="js-pjax"><script>window.typedJSFn = {
+  init: str => {
+    window.typed = new Typed('#subtitle', Object.assign({
+      strings: str,
+      startDelay: 300,
+      typeSpeed: 150,
+      loop: true,
+      backSpeed: 50,
+    }, null))
+  },
+  run: subtitleType => {
+    if (true) {
+      if (typeof Typed === 'function') {
+        subtitleType()
+      } else {
+        btf.getScript('https://cdn.jsdelivr.net/npm/typed.js/dist/typed.umd.min.js').then(subtitleType)
+      }
+    } else {
+      subtitleType()
+    }
+  },
+  processSubtitle: (content, extraContents = []) => {
+    if (true) {
+      const sub = [].slice()
+
+      if (extraContents.length > 0) {
+        sub.unshift(...extraContents)
+      }
+
+      if (typeof content === 'string') {
+        sub.unshift(content)
+      } else if (Array.isArray(content)) {
+        sub.unshift(...content)
+      }
+
+      sub.length > 0 && typedJSFn.init(sub)
+    } else {
+      document.getElementById('subtitle').textContent = typeof content === 'string' ? content :
+        (Array.isArray(content) && content.length > 0 ? content[0] : '')
+    }
+  }
+}
+btf.addGlobalFn('pjaxSendOnce', () => { typed.destroy() }, 'typedDestroy')
+</script><script>function subtitleType () {
+  fetch('https://v1.hitokoto.cn')
+    .then(response => response.json())
+    .then(data => {
+      const from = '出自 ' + data.from
+      typedJSFn.processSubtitle(data.hitokoto, [from])
+    })
+    .catch(err => {
+      console.error('Failed to get the Hitokoto API:', err)
+      typedJSFn.processSubtitle([])
+    })
+}
+typedJSFn.run(subtitleType)
+</script></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">Search</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  Loading Database</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search..." type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

@@ -1,0 +1,815 @@
+<!DOCTYPE html><html lang="zh" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>数据结构 | lyi61pd</title><meta name="author" content="lyi61pd"><meta name="copyright" content="lyi61pd"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="快速回忆下大学的数据结构课， 这些看完， 大概下面这些能理解一点啦~  树 二叉查找树 完全二叉树 平衡二叉树 n叉树 树的遍历 B+树 跳表 红黑树 AVL树 B树  树的基本概念学习树的基础是理解更复杂的树结构（如红黑树、AVL树等）的前提。让我们从最基本的树概念开始。 树（Tree）是一种非线性的数据结构，由节点（Node）组成，节点之间通过边（Edge）连接。树的结构很像倒立的家谱图或者文">
+<meta property="og:type" content="article">
+<meta property="og:title" content="数据结构">
+<meta property="og:url" content="https://lyi61pd.github.io/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">
+<meta property="og:site_name" content="lyi61pd">
+<meta property="og:description" content="快速回忆下大学的数据结构课， 这些看完， 大概下面这些能理解一点啦~  树 二叉查找树 完全二叉树 平衡二叉树 n叉树 树的遍历 B+树 跳表 红黑树 AVL树 B树  树的基本概念学习树的基础是理解更复杂的树结构（如红黑树、AVL树等）的前提。让我们从最基本的树概念开始。 树（Tree）是一种非线性的数据结构，由节点（Node）组成，节点之间通过边（Edge）连接。树的结构很像倒立的家谱图或者文">
+<meta property="og:locale">
+<meta property="og:image" content="https://lyi61pd.github.io/blog_imgs/avatar.png">
+<meta property="article:published_time" content="2025-04-03T00:00:00.000Z">
+<meta property="article:modified_time" content="2025-07-30T03:40:55.101Z">
+<meta property="article:author" content="lyi61pd">
+<meta property="article:tag" content="数据结构">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://lyi61pd.github.io/blog_imgs/avatar.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "数据结构",
+  "url": "https://lyi61pd.github.io/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/",
+  "image": "https://lyi61pd.github.io/blog_imgs/avatar.png",
+  "datePublished": "2025-04-03T00:00:00.000Z",
+  "dateModified": "2025-07-30T03:40:55.101Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "lyi61pd",
+      "url": "https://lyi61pd.github.io/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/blog_imgs/avatar.png"><link rel="canonical" href="https://lyi61pd.github.io/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          const mediaQueryDark = window.matchMedia('(prefers-color-scheme: dark)')
+          const mediaQueryLight = window.matchMedia('(prefers-color-scheme: light)')
+
+          if (theme === undefined) {
+            if (mediaQueryLight.matches) activateLightMode()
+            else if (mediaQueryDark.matches) activateDarkMode()
+            else {
+              const hour = new Date().getHours()
+              const isNight = hour <= 6 || hour >= 18
+              isNight ? activateDarkMode() : activateLightMode()
+            }
+            mediaQueryDark.addEventListener('change', () => {
+              if (saveToLocal.get('theme') === undefined) {
+                e.matches ? activateDarkMode() : activateLightMode()
+              }
+            })
+          } else {
+            theme === 'light' ? activateLightMode() : activateDarkMode()
+          }
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.xml","preload":true,"top_n_per_article":1,"unescape":true,"languages":{"hits_empty":"No results found for: ${query}","hits_stats":"${hits} articles found"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: 'Copy Successful',
+    error: 'Copy Failed',
+    noSupport: 'Browser Not Supported'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: 'Just now',
+    min: 'minutes ago',
+    hour: 'hours ago',
+    day: 'days ago',
+    month: 'months ago'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: 'Load More'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: true
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: '数据结构',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="lyi61pd" type="application/atom+xml">
+</head><body><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/blog_imgs/banner.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">lyi61pd</span></a><a class="nav-page-title" href="/"><span class="site-name">数据结构</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> Search</span></span></div></div></nav><div id="post-info"><h1 class="post-title">数据结构</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">Created</span><time class="post-meta-date-created" datetime="2025-04-03T00:00:00.000Z" title="Created 2025-04-03 00:00:00">2025-04-03</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">Updated</span><time class="post-meta-date-updated" datetime="2025-07-30T03:40:55.101Z" title="Updated 2025-07-30 03:40:55">2025-07-30</time></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">Post Views:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><p>快速回忆下大学的数据结构课， 这些看完， 大概下面这些能理解一点啦~</p>
+<ul>
+<li>树</li>
+<li>二叉查找树</li>
+<li>完全二叉树</li>
+<li>平衡二叉树</li>
+<li>n叉树</li>
+<li>树的遍历</li>
+<li>B+树</li>
+<li>跳表</li>
+<li>红黑树</li>
+<li>AVL树</li>
+<li>B树</li>
+</ul>
+<h1 id="树的基本概念"><a href="#树的基本概念" class="headerlink" title="树的基本概念"></a>树的基本概念</h1><p>学习树的基础是理解更复杂的树结构（如红黑树、AVL树等）的前提。让我们从最基本的树概念开始。</p>
+<p><strong>树</strong>（Tree）是一种非线性的数据结构，由节点（Node）组成，节点之间通过边（Edge）连接。树的结构很像倒立的家谱图或者文件系统的结构。</p>
+<p>树是由根节点（Root）开始，经过多个层级的分支（Branch），直到叶子节点（Leaf）</p>
+<h2 id="树的基本术语："><a href="#树的基本术语：" class="headerlink" title="树的基本术语："></a>树的基本术语：</h2><ul>
+<li><strong>根节点（Root）</strong>：树的起始节点，没有父节点。</li>
+<li><strong>节点（Node）</strong>：树中的每个元素，包含数据部分以及指向其他节点的指针（或引用）。</li>
+<li><strong>边（Edge）</strong>：节点之间的连接。</li>
+<li><strong>子节点（Child）</strong>：直接连接到某个节点的节点，称为该节点的子节点。</li>
+<li><strong>父节点（Parent）</strong>：一个节点的直接连接节点是它的父节点。</li>
+<li><strong>叶子节点（Leaf）</strong>：没有子节点的节点。</li>
+<li><strong>高度（Height）</strong>：树的高度是从根节点到最深的叶子节点的最长路径的长度（也可以理解为树的层级数）。</li>
+<li><strong>深度（Depth）</strong>：节点的深度是从根节点到该节点的路径长度。</li>
+<li><strong>层级（Level）</strong>：树中的每一层，通常层级从0开始（根节点是第0层）。</li>
+</ul>
+<h2 id="树的类型"><a href="#树的类型" class="headerlink" title="树的类型"></a>树的类型</h2><p>树可以有不同的形式，以下是几种常见的树类型：</p>
+<h3 id="二叉树-Binary-Tree"><a href="#二叉树-Binary-Tree" class="headerlink" title="二叉树 (Binary Tree)"></a>二叉树 (Binary Tree)</h3><ul>
+<li><strong>定义</strong>：每个节点最多有两个子节点，通常称为左子节点和右子节点。</li>
+<li><strong>特点</strong>：<ul>
+<li>每个节点最多有两个子节点。</li>
+<li>二叉树的每个节点可以有不同数量的子节点（0个、1个或2个）。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：二叉树是很多复杂树结构的基础，例如二叉查找树、堆等。</li>
+</ul>
+<h3 id="二叉查找树-Binary-Search-Tree-BST"><a href="#二叉查找树-Binary-Search-Tree-BST" class="headerlink" title="二叉查找树 (Binary Search Tree, BST)"></a>二叉查找树 (Binary Search Tree, BST)</h3><ul>
+<li><strong>定义</strong>：它是一种特殊的二叉树，节点的左子树上的所有值都小于节点的值，右子树上的所有值都大于节点的值。</li>
+<li><strong>特点</strong>：<ul>
+<li>左子树的所有节点的值都小于根节点。</li>
+<li>右子树的所有节点的值都大于根节点。</li>
+<li>这使得搜索操作可以通过比较快速地确定走向左子树还是右子树。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：用于实现高效的查找、插入、删除等操作。</li>
+</ul>
+<h3 id="完全二叉树-Complete-Binary-Tree"><a href="#完全二叉树-Complete-Binary-Tree" class="headerlink" title="完全二叉树 (Complete Binary Tree)"></a>完全二叉树 (Complete Binary Tree)</h3><ul>
+<li><strong>定义</strong>：一个二叉树，除了最后一层外，其他层都是满的，并且最后一层的节点都靠左排列。</li>
+<li><strong>特点</strong>：<ul>
+<li>除了最后一层，其他层的节点数量都是满的。</li>
+<li>最后一层的节点从左到右填充。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：常用于堆（如大顶堆和小顶堆）等数据结构。</li>
+</ul>
+<h3 id="平衡二叉树-Balanced-Binary-Tree"><a href="#平衡二叉树-Balanced-Binary-Tree" class="headerlink" title="平衡二叉树 (Balanced Binary Tree)"></a>平衡二叉树 (Balanced Binary Tree)</h3><ul>
+<li><strong>定义</strong>：平衡二叉树是一种二叉树，要求每个节点的左右子树高度差不超过一定的范围（如 AVL 树就是一种平衡二叉树）。</li>
+<li><strong>特点</strong>：<ul>
+<li>保证树的高度较低，避免树退化成链表。</li>
+<li>高效的查找、插入和删除操作。</li>
+</ul>
+</li>
+<li><strong>用途</strong>：如 AVL 树、红黑树等，广泛用于数据库索引。</li>
+</ul>
+<h3 id="n叉树-n-ary-Tree"><a href="#n叉树-n-ary-Tree" class="headerlink" title="n叉树 (n-ary Tree)"></a>n叉树 (n-ary Tree)</h3><ul>
+<li><strong>定义</strong>：n叉树是每个节点最多有n个子节点的树。</li>
+<li><strong>特点</strong>：<ul>
+<li>每个节点最多有n个子节点。</li>
+<li>常用于表示具有多层次的复杂数据结构，如文件系统。</li>
+</ul>
+</li>
+</ul>
+<h2 id="树的遍历"><a href="#树的遍历" class="headerlink" title="树的遍历"></a>树的遍历</h2><p>树的遍历是指访问树中所有节点的过程。常见的树的遍历方式有三种：</p>
+<h3 id="前序遍历-Preorder-Traversal"><a href="#前序遍历-Preorder-Traversal" class="headerlink" title="前序遍历 (Preorder Traversal)"></a>前序遍历 (Preorder Traversal)</h3><ul>
+<li><strong>步骤</strong>：先访问当前节点，然后递归地前序遍历左子树，再递归地前序遍历右子树。</li>
+<li><strong>顺序</strong>：根节点 → 左子树 → 右子树。</li>
+</ul>
+<h3 id="中序遍历-Inorder-Traversal"><a href="#中序遍历-Inorder-Traversal" class="headerlink" title="中序遍历 (Inorder Traversal)"></a>中序遍历 (Inorder Traversal)</h3><ul>
+<li><strong>步骤</strong>：递归地中序遍历左子树，访问当前节点，然后递归地中序遍历右子树。</li>
+<li><strong>顺序</strong>：左子树 → 根节点 → 右子树。</li>
+<li><strong>特点</strong>：二叉查找树的中序遍历结果是按从小到大的顺序排列的。</li>
+</ul>
+<h3 id="后序遍历-Postorder-Traversal"><a href="#后序遍历-Postorder-Traversal" class="headerlink" title="后序遍历 (Postorder Traversal)"></a>后序遍历 (Postorder Traversal)</h3><ul>
+<li><strong>步骤</strong>：递归地后序遍历左子树，再递归地后序遍历右子树，然后访问当前节点。</li>
+<li><strong>顺序</strong>：左子树 → 右子树 → 根节点。</li>
+</ul>
+<h3 id="层次遍历-Level-Order-Traversal"><a href="#层次遍历-Level-Order-Traversal" class="headerlink" title="层次遍历 (Level Order Traversal)"></a>层次遍历 (Level Order Traversal)</h3><ul>
+<li><strong>步骤</strong>：按层级遍历树的节点，通常使用队列来实现。</li>
+<li><strong>顺序</strong>：根节点 → 第一层 → 第二层 → 第三层 → ……直到最后一层。</li>
+</ul>
+<h2 id="树的应用"><a href="#树的应用" class="headerlink" title="树的应用"></a>树的应用</h2><p>树作为一种数据结构，有许多实际应用，常见的包括：</p>
+<ul>
+<li><strong>文件系统</strong>：文件和目录组织成树形结构，根目录是树的根节点，文件和文件夹是节点。</li>
+<li><strong>数据库索引</strong>：树结构（如B树、B+树）常用于数据库的索引，帮助快速查找数据。</li>
+<li><strong>游戏决策树</strong>：用于表示游戏中的可能决策路径。</li>
+</ul>
+<hr>
+<h2 id="二叉查找树（Binary-Search-Tree-BST）"><a href="#二叉查找树（Binary-Search-Tree-BST）" class="headerlink" title="二叉查找树（Binary Search Tree, BST）"></a>二叉查找树（Binary Search Tree, BST）</h2><h3 id="定义"><a href="#定义" class="headerlink" title="定义"></a>定义</h3><p>二叉查找树是一种特殊的二叉树，满足以下性质：</p>
+<ul>
+<li>每个节点最多有两个子节点。</li>
+<li>左子树中所有节点的值小于根节点。</li>
+<li>右子树中所有节点的值大于根节点。</li>
+<li>每一棵子树也都是一棵二叉查找树。</li>
+</ul>
+<h3 id="操作"><a href="#操作" class="headerlink" title="操作"></a>操作</h3><p><strong>查找（Search）</strong></p>
+<p>从根节点开始：</p>
+<ul>
+<li>如果目标值等于当前节点，返回。</li>
+<li>如果目标值小于当前节点，进入左子树。</li>
+<li>如果目标值大于当前节点，进入右子树。</li>
+</ul>
+<p>查找的时间复杂度与树的高度有关，最坏是 O(n)，最优是 O(log n)。</p>
+<p><strong>插入（Insert）</strong></p>
+<p>插入值时，按查找路径向下走，找到空位插入即可，不会破坏 BST 结构。</p>
+<p><strong>删除（Delete）</strong></p>
+<p>分三种情况处理：</p>
+<ol>
+<li>删除叶子节点，直接删除。</li>
+<li>删除只有一个子节点的节点，用子节点替换该节点。</li>
+<li>删除有两个子节点的节点，找到该节点的中序后继或中序前驱，用它的值替换当前节点，再删除那个节点。</li>
+</ol>
+<h3 id="问题：BST-可能退化成链表"><a href="#问题：BST-可能退化成链表" class="headerlink" title="问题：BST 可能退化成链表"></a>问题：BST 可能退化成链表</h3><p>如果连续插入有序数据，例如 1、2、3、4、5，树就会变成单边链表，导致查找效率退化为 O(n)。</p>
+<p>为了解决这个问题，就需要引入“自平衡”的机制，也就是平衡二叉树。</p>
+<hr>
+<h2 id="平衡二叉树的基本思想"><a href="#平衡二叉树的基本思想" class="headerlink" title="平衡二叉树的基本思想"></a>平衡二叉树的基本思想</h2><h3 id="什么是平衡"><a href="#什么是平衡" class="headerlink" title="什么是平衡"></a>什么是平衡</h3><p>树的高度决定了查找、插入、删除的效率。所谓平衡，是指尽量保持每个节点的左右子树高度差不要太大，避免形成单边长链。</p>
+<p>平衡树的目标是让树的高度保持在 O(log n) 以内，从而提高整体性能。</p>
+<h3 id="平衡的实现手段：旋转操作"><a href="#平衡的实现手段：旋转操作" class="headerlink" title="平衡的实现手段：旋转操作"></a>平衡的实现手段：旋转操作</h3><p>当插入或删除节点后导致失衡，可以通过旋转操作让树重新平衡。</p>
+<p><strong>左旋</strong></p>
+<p>将某个节点的右子节点提升为新的父节点，原父节点变为其左子节点。</p>
+<p>例子： 节点 A 有右子节点 B，B 再有右子节点 C</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">原始结构：</span><br><span class="line">    A</span><br><span class="line">     \</span><br><span class="line">      B</span><br><span class="line">       \</span><br><span class="line">        C</span><br><span class="line"></span><br><span class="line">左旋后：</span><br><span class="line">    B</span><br><span class="line">   / \</span><br><span class="line">  A   C</span><br></pre></td></tr></table></figure>
+
+<p><strong>右旋</strong></p>
+<p>将某个节点的左子节点提升为新的父节点，原父节点变为其右子节点。</p>
+<p>例子： 节点 C 有左子节点 B，B 再有左子节点 A</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br></pre></td><td class="code"><pre><span class="line">原始结构：</span><br><span class="line">    C</span><br><span class="line">   /</span><br><span class="line">  B</span><br><span class="line"> /</span><br><span class="line">A</span><br><span class="line"></span><br><span class="line">右旋后：</span><br><span class="line">    B</span><br><span class="line">   / \</span><br><span class="line">  A   C</span><br></pre></td></tr></table></figure>
+
+<p>通过这些旋转，可以动态调整树结构，使其保持平衡。</p>
+<hr>
+<h2 id="红黑树简介"><a href="#红黑树简介" class="headerlink" title="红黑树简介"></a>红黑树简介</h2><p>红黑树是自平衡的二叉查找树，它使用颜色和旋转来控制树的高度。</p>
+<p>红黑树不是严格平衡的，但它能保证最长路径不会超过最短路径的两倍，因此效率稳定。</p>
+<h3 id="红黑树的五个性质"><a href="#红黑树的五个性质" class="headerlink" title="红黑树的五个性质"></a>红黑树的五个性质</h3><ol>
+<li>每个节点是红色或黑色。</li>
+<li>根节点必须是黑色。</li>
+<li>所有叶子节点（NIL 节点）是黑色。</li>
+<li>如果一个节点是红色的，则它的两个子节点必须是黑色的（不能连续两个红色节点）。</li>
+<li>从任意节点到其所有叶子节点的路径上，包含的黑色节点数量必须相同。</li>
+</ol>
+<p>这些性质共同保证了树的平衡性。</p>
+<hr>
+<h2 id="总结"><a href="#总结" class="headerlink" title="总结"></a>总结</h2><ul>
+<li>普通二叉查找树查找效率依赖于树高，可能退化成链表。</li>
+<li>平衡二叉树通过旋转操作保持结构平衡，提升查找、插入、删除性能。</li>
+<li>红黑树是一种宽松的平衡树，通过颜色约束加旋转来维持近似平衡。</li>
+<li>红黑树是很多底层库和系统（如 Java TreeMap、C++ STL、Linux 内核）使用的高效结构。</li>
+</ul>
+<hr>
+<h1 id="红黑树与-AVL-性能对比，如何选型"><a href="#红黑树与-AVL-性能对比，如何选型" class="headerlink" title="红黑树与 AVL 性能对比，如何选型"></a>红黑树与 AVL 性能对比，如何选型</h1><p>这是一个很实用、也很容易被误解的问题。我们来进行一次<strong>实事求是</strong>的对比，站在工程实践的角度，讲清楚 <strong>红黑树 vs AVL 树 的性能差异、适用场景、优缺点、如何选型</strong>。</p>
+<hr>
+<h2 id="红黑树与-AVL-树的核心差异"><a href="#红黑树与-AVL-树的核心差异" class="headerlink" title="红黑树与 AVL 树的核心差异"></a>红黑树与 AVL 树的核心差异</h2><table>
+<thead>
+<tr>
+<th>比较点</th>
+<th>AVL 树</th>
+<th>红黑树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>平衡性</td>
+<td>严格平衡（左右子树高度差 ≤ 1）</td>
+<td>相对平衡（通过颜色规则控制）</td>
+</tr>
+<tr>
+<td>插入效率</td>
+<td>较慢，可能频繁旋转</td>
+<td>较快，旋转次数更少</td>
+</tr>
+<tr>
+<td>删除效率</td>
+<td>更慢（容易失衡）</td>
+<td>更快（更容忍不平衡）</td>
+</tr>
+<tr>
+<td>查找效率</td>
+<td>稍快（更矮更“紧凑”）</td>
+<td>稍慢（更高一些）</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>中等</td>
+<td>略高，染色逻辑更麻烦</td>
+</tr>
+<tr>
+<td>实际树高</td>
+<td>log(n)，更低</td>
+<td>最坏 2log(n)，略高但可接受</td>
+</tr>
+<tr>
+<td>应用场景</td>
+<td>查找密集</td>
+<td>插入&#x2F;删除频繁</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="时间复杂度对比（理论上相同）"><a href="#时间复杂度对比（理论上相同）" class="headerlink" title="时间复杂度对比（理论上相同）"></a>时间复杂度对比（理论上相同）</h2><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>AVL</th>
+<th>红黑树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>插入</td>
+<td>O(log n) + 最多 2 次旋转</td>
+<td>O(log n) + 最多 3 次旋转 + 染色</td>
+</tr>
+<tr>
+<td>删除</td>
+<td>O(log n) + 最多 log n 次旋转</td>
+<td>O(log n) + 最多 3 次旋转 + 染色</td>
+</tr>
+</tbody></table>
+<p><strong>注意</strong>：红黑树旋转次数少于 AVL，是因为它更“宽松”地控制平衡。</p>
+<hr>
+<h2 id="为什么工程中更常用红黑树？"><a href="#为什么工程中更常用红黑树？" class="headerlink" title="为什么工程中更常用红黑树？"></a>为什么工程中更常用红黑树？</h2><h3 id="1-插入、删除性能更稳定"><a href="#1-插入、删除性能更稳定" class="headerlink" title="1. 插入、删除性能更稳定"></a>1. 插入、删除性能更稳定</h3><p>AVL 树插入删除操作中需要频繁调整结构（旋转），因为它追求高度的平衡性。虽然这保证了查找很快，但维护成本高。</p>
+<p>红黑树采用更“保守”的平衡策略，调整动作较少，<strong>整体吞吐量更好</strong>。这在系统级开发中非常重要，比如操作系统、数据库、语言运行时。</p>
+<h3 id="2-插入-删除频率高时，红黑树吞吐量优于-AVL"><a href="#2-插入-删除频率高时，红黑树吞吐量优于-AVL" class="headerlink" title="2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVL"></a>2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVL</h3><p>AVL树适合“读多写少”的场景，比如缓存系统。</p>
+<p>红黑树适合“读写都频繁”的场景，比如内核调度、任务队列、映射表等。</p>
+<hr>
+<h2 id="实际案例对比"><a href="#实际案例对比" class="headerlink" title="实际案例对比"></a>实际案例对比</h2><h3 id="Java-TreeMap-TreeSet"><a href="#Java-TreeMap-TreeSet" class="headerlink" title="Java TreeMap &#x2F; TreeSet"></a>Java <code>TreeMap</code> &#x2F; <code>TreeSet</code></h3><ul>
+<li>使用的是 <strong>红黑树</strong> 实现</li>
+<li>原因：Java中集合类通常面对频繁插入和删除（如实时排序、排名等），红黑树性能更均衡</li>
+</ul>
+<h3 id="C-STL-的-std-map-std-set"><a href="#C-STL-的-std-map-std-set" class="headerlink" title="C++ STL 的 std::map &#x2F; std::set"></a>C++ STL 的 <code>std::map</code> &#x2F; <code>std::set</code></h3><ul>
+<li>也使用的是 <strong>红黑树</strong></li>
+<li>同样考虑的是泛型容器的插入&#x2F;删除复杂度</li>
+</ul>
+<h3 id="Linux-内核调度器-时间红黑树（RB-tree）"><a href="#Linux-内核调度器-时间红黑树（RB-tree）" class="headerlink" title="Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）"></a>Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）</h3><ul>
+<li>使用的是红黑树（见 <code>include/linux/rbtree.h</code>）</li>
+<li>因为调度器中的进程插入&#x2F;删除频繁，而查找不一定多，所以使用红黑树性能更佳</li>
+</ul>
+<hr>
+<h2 id="什么时候选-AVL-树？"><a href="#什么时候选-AVL-树？" class="headerlink" title="什么时候选 AVL 树？"></a>什么时候选 AVL 树？</h2><p>虽然工程里红黑树更常见，但 <strong>AVL 并不是没用</strong>，它在以下场景下依然有价值：</p>
+<ul>
+<li>对查找性能要求极致，数据变动频率低的场景<ul>
+<li>如<strong>内存索引、缓存服务、读密集型数据库</strong></li>
+</ul>
+</li>
+<li>数据量适中，性能压力可控，希望保证查找时间始终最优</li>
+</ul>
+<p>比如：一个静态配置中心，你预先插入一些配置项，然后主要是查找访问。用 AVL 是合理的。</p>
+<hr>
+<h2 id="工程选型建议总结"><a href="#工程选型建议总结" class="headerlink" title="工程选型建议总结"></a>工程选型建议总结</h2><table>
+<thead>
+<tr>
+<th>场景</th>
+<th>推荐结构</th>
+<th>原因</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找频繁、插入删除极少</td>
+<td>AVL</td>
+<td>查找快，保持严格平衡</td>
+</tr>
+<tr>
+<td>插入&#x2F;删除频繁，查找适中</td>
+<td>红黑树</td>
+<td>性能更均衡，旋转少</td>
+</tr>
+<tr>
+<td>需要范围查询</td>
+<td>B+树</td>
+<td>存储系统常用结构（如数据库）</td>
+</tr>
+<tr>
+<td>高并发环境下</td>
+<td>并发跳表 &#x2F; 哈希表</td>
+<td>红黑树&#x2F;AVL 不擅长并发控制</td>
+</tr>
+<tr>
+<td>内核、调度系统</td>
+<td>红黑树</td>
+<td>插入&#x2F;删除频繁，吞吐量更重要</td>
+</tr>
+<tr>
+<td>学术 &#x2F; 教学用</td>
+<td>AVL</td>
+<td>更容易推导、理解平衡原理</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="总结一句话"><a href="#总结一句话" class="headerlink" title="总结一句话"></a>总结一句话</h2><p><strong>红黑树是工业界的主流选型，因为它在保持平衡和性能之间做了非常合理的权衡。</strong></p>
+<p>而 AVL 更适合做“查找效率最优”的算法研究、教学或低变更场景。</p>
+<h1 id="B树、B-树、跳表"><a href="#B树、B-树、跳表" class="headerlink" title="B树、B+树、跳表"></a>B树、B+树、跳表</h1><p>非常好，接下来我们进入数据库&#x2F;存储系统中常用的三种结构：<strong>B树、B+树、跳表</strong>，它们都是用于<strong>范围查找、批量排序、动态插入删除</strong>等复杂需求下的数据结构。</p>
+<p>我会按这个顺序讲解：</p>
+<ol>
+<li><strong>先讲 B 树</strong>：基础结构，理解它是后续 B+ 树的前提</li>
+<li><strong>再讲 B+ 树</strong>：数据库索引、文件系统最常用结构</li>
+<li><strong>最后讲跳表</strong>：高性能内存结构，Redis 的最爱</li>
+</ol>
+<p>每一个我们都会涵盖：</p>
+<ul>
+<li>是什么（直观理解）</li>
+<li>如何组织数据</li>
+<li>查找&#x2F;插入&#x2F;删除怎么做</li>
+<li>为什么它适合某类场景</li>
+</ul>
+<hr>
+<h2 id="B-树（Balanced-Tree-多路平衡查找树）"><a href="#B-树（Balanced-Tree-多路平衡查找树）" class="headerlink" title="B 树（Balanced Tree &#x2F; 多路平衡查找树）"></a>B 树（Balanced Tree &#x2F; 多路平衡查找树）</h2><h3 id="是什么"><a href="#是什么" class="headerlink" title="是什么"></a>是什么</h3><p>B 树是一种<strong>多路搜索树</strong>，是对二叉搜索树的推广。每个节点不仅可以有两个子节点，而是可以有多个。<br>广泛用于<strong>磁盘存储、数据库索引结构</strong>中，因为它减少了磁盘读写次数。</p>
+<h3 id="特点"><a href="#特点" class="headerlink" title="特点"></a>特点</h3><ul>
+<li>每个节点最多有 <code>m-1</code> 个数据项，<code>m</code> 个子指针（m 是阶数）</li>
+<li>所有节点的关键字保持有序</li>
+<li>插入、删除后依然保持平衡</li>
+<li>所有叶子节点在同一层（树高固定）</li>
+</ul>
+<h3 id="举例（以3阶-B-树为例）"><a href="#举例（以3阶-B-树为例）" class="headerlink" title="举例（以3阶 B 树为例）"></a>举例（以3阶 B 树为例）</h3><ul>
+<li>一个节点最多 2 个键，最多有 3 个子节点</li>
+<li>比如节点中有 [10, 20]，它的子树范围：<ul>
+<li>子树1：小于 10</li>
+<li>子树2：10~20</li>
+<li>子树3：大于 20</li>
+</ul>
+</li>
+</ul>
+<h3 id="查找"><a href="#查找" class="headerlink" title="查找"></a>查找</h3><p>和二分查找类似：</p>
+<ul>
+<li>从根节点开始，在节点中查找关键字位置（可以使用二分）</li>
+<li>找不到则沿对应子树向下</li>
+</ul>
+<p>时间复杂度为 O(log n)，<strong>但每一层“跨度大”，所以树的高度更低，查找更快</strong></p>
+<h3 id="插入"><a href="#插入" class="headerlink" title="插入"></a>插入</h3><ul>
+<li>找到插入位置，插入键</li>
+<li>如果节点已满，就<strong>分裂节点</strong>，中间值“上提”到父节点</li>
+<li>插入可能从叶子一路调整到根节点，最多增加一层高度</li>
+</ul>
+<h3 id="删除"><a href="#删除" class="headerlink" title="删除"></a>删除</h3><ul>
+<li>类似 BST，找到值删掉</li>
+<li>如果节点删除后不满足最小关键字数量，就需要<strong>向兄弟借值或合并节点</strong></li>
+<li>复杂度 O(log n)</li>
+</ul>
+<h3 id="应用场景"><a href="#应用场景" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
+<li>MySQL 的 MyISAM 引擎使用的是 <strong>B 树索引</strong></li>
+<li>适合中等范围查询、单点查找、插入删除都频繁的磁盘结构</li>
+</ul>
+<hr>
+<h2 id="B-树（B-Tree-的增强版）"><a href="#B-树（B-Tree-的增强版）" class="headerlink" title="B+ 树（B Tree 的增强版）"></a>B+ 树（B Tree 的增强版）</h2><h3 id="是什么-1"><a href="#是什么-1" class="headerlink" title="是什么"></a>是什么</h3><p>B+ 树是 B 树的一个变种，<strong>所有值都存在叶子节点</strong>，非叶子节点只做“导航”。</p>
+<p><strong>MySQL InnoDB、文件系统、LevelDB 等都使用 B+ 树作为索引结构。</strong></p>
+<h3 id="和-B-树的区别"><a href="#和-B-树的区别" class="headerlink" title="和 B 树的区别"></a>和 B 树的区别</h3><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>B 树</th>
+<th>B+ 树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>数据存储</td>
+<td>所有节点存数据</td>
+<td>只有叶子节点存数据</td>
+</tr>
+<tr>
+<td>内部节点</td>
+<td>数据 + 导航</td>
+<td>仅导航（索引）</td>
+</tr>
+<tr>
+<td>查找路径</td>
+<td>可提前终止</td>
+<td>一定走到叶子节点</td>
+</tr>
+<tr>
+<td>范围查询</td>
+<td>差</td>
+<td>强（叶子节点有链表）</td>
+</tr>
+</tbody></table>
+<h3 id="特点-1"><a href="#特点-1" class="headerlink" title="特点"></a>特点</h3><ul>
+<li>所有叶子节点通过链表串起来，方便范围查询</li>
+<li>非叶子节点只做索引，节省空间，<strong>扇出更高，树更矮</strong></li>
+<li>结构更适合磁盘块对齐，减少 IO 次数</li>
+</ul>
+<h3 id="查找-1"><a href="#查找-1" class="headerlink" title="查找"></a>查找</h3><ul>
+<li>和 B 树类似，但一定查到叶子节点才能拿到数据</li>
+<li>路径更统一，便于实现</li>
+</ul>
+<h3 id="范围查询"><a href="#范围查询" class="headerlink" title="范围查询"></a>范围查询</h3><ul>
+<li>特别高效，只需要找到范围起点，然后从链表顺着读下去即可</li>
+</ul>
+<h3 id="应用场景-1"><a href="#应用场景-1" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
+<li><strong>数据库索引（MySQL InnoDB）</strong></li>
+<li><strong>文件系统（如 NTFS, XFS）</strong></li>
+<li>批量范围读取、数据分页、高并发写场景</li>
+</ul>
+<hr>
+<h2 id="跳表（Skip-List）"><a href="#跳表（Skip-List）" class="headerlink" title="跳表（Skip List）"></a>跳表（Skip List）</h2><h3 id="是什么-2"><a href="#是什么-2" class="headerlink" title="是什么"></a>是什么</h3><p>跳表是一种通过在链表上建立多级索引的方式实现快速查找的数据结构。</p>
+<p>你可以理解为：<strong>链表 + 多层快速通道</strong>，是“概率化”实现的平衡树。</p>
+<h3 id="结构"><a href="#结构" class="headerlink" title="结构"></a>结构</h3><ul>
+<li>底层是有序链表（维护所有元素）</li>
+<li>每一层随机选取一些节点参与“快速通道”</li>
+<li>每一层都是下一层的子集，最顶层最稀疏</li>
+</ul>
+<p>比如有 16 个节点，可能层结构像这样：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">Level 3:      A --------- H</span><br><span class="line">Level 2:      A ---- E -- H -- M</span><br><span class="line">Level 1: A - B - C - D - E - F - G - H - I - ... - P</span><br></pre></td></tr></table></figure>
+
+<h3 id="查找-2"><a href="#查找-2" class="headerlink" title="查找"></a>查找</h3><ul>
+<li>从顶层开始，逐层往下，直到定位到目标位置</li>
+<li>每次跳跃跨度大，大大加快查找速度</li>
+</ul>
+<p>平均时间复杂度：O(log n)</p>
+<h3 id="插入-删除"><a href="#插入-删除" class="headerlink" title="插入 &#x2F; 删除"></a>插入 &#x2F; 删除</h3><ul>
+<li>插入新节点后，按概率决定它会出现在多少层（比如 Redis 是1&#x2F;4 概率上升一层）</li>
+<li>删除也是先找到节点，再清理所有层级中的引用</li>
+</ul>
+<p>时间复杂度：O(log n)</p>
+<h3 id="应用场景-2"><a href="#应用场景-2" class="headerlink" title="应用场景"></a>应用场景</h3><ul>
+<li><strong>Redis 的 zset（有序集合）使用跳表实现</strong></li>
+<li>比树更容易实现，适合内存结构、并发场景</li>
+<li>查找、插入、删除都非常高效</li>
+<li>不需要复杂的旋转、维护，代码比平衡树更简单</li>
+</ul>
+<hr>
+<h2 id="三者对比总结"><a href="#三者对比总结" class="headerlink" title="三者对比总结"></a>三者对比总结</h2><table>
+<thead>
+<tr>
+<th>特性</th>
+<th>B 树</th>
+<th>B+ 树</th>
+<th>跳表</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找效率</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>插入&#x2F;删除</td>
+<td>O(log n)</td>
+<td>O(log n)</td>
+<td>O(log n)（更简单）</td>
+</tr>
+<tr>
+<td>是否适合磁盘</td>
+<td>是</td>
+<td>是（最佳）</td>
+<td>否，适合内存</td>
+</tr>
+<tr>
+<td>是否适合范围查询</td>
+<td>一般</td>
+<td>强（链表）</td>
+<td>强（链表）</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>中</td>
+<td>中高</td>
+<td>低（逻辑简单）</td>
+</tr>
+<tr>
+<td>工程应用</td>
+<td>MyISAM索引</td>
+<td>InnoDB索引，文件系统</td>
+<td>Redis zset、有序内存结构</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="总结建议"><a href="#总结建议" class="headerlink" title="总结建议"></a>总结建议</h2><ul>
+<li><strong>数据库磁盘索引</strong>：使用 B+ 树。查找、范围查询快，IO次数少，MySQL&#x2F;Oracle&#x2F;SQLite都用它。</li>
+<li><strong>键值对内存结构（Redis）</strong>：用跳表。简单好用，查找&#x2F;插入性能稳定。</li>
+<li><strong>老的存储结构或小范围索引</strong>：B 树也能用，但现在基本被 B+ 树取代。</li>
+</ul>
+<hr>
+<h2 id="B树和B-树对比"><a href="#B树和B-树对比" class="headerlink" title="B树和B+树对比"></a>B树和B+树对比</h2><ul>
+<li><strong>B树</strong> 和 <strong>B+树</strong> 都是自平衡的多路查找树，它们通过分支节点和数据节点组织数据，确保了对大规模数据的高效查找。</li>
+<li><strong>B+树</strong> 相比于 <strong>B树</strong>，更加高效，特别是在 <strong>范围查询</strong> 和 <strong>顺序访问</strong> 上，因此在数据库和文件系统中，B+树的应用更加广泛。</li>
+<li><strong>B树</strong> 适合需要 <strong>较少的范围查询</strong> 或 <strong>较均衡的查找操作</strong> 的场景，而 <strong>B+树</strong> 更适合 <strong>大规模数据存储、范围查询和顺序扫描</strong> 的场景。</li>
+</ul>
+<hr>
+<h1 id="什么是-AVL-树？"><a href="#什么是-AVL-树？" class="headerlink" title="什么是 AVL 树？"></a>什么是 AVL 树？</h1><p><strong>AVL 树</strong> 是一种 <strong>自平衡的二叉查找树（Binary Search Tree, BST）</strong>，它的全称是：</p>
+<p><strong>Adelson-Velsky and Landis Tree</strong><br>由两位苏联科学家在 1962 年提出，是世界上第一个自平衡二叉查找树。</p>
+<hr>
+<h2 id="AVL-树的核心特性"><a href="#AVL-树的核心特性" class="headerlink" title="AVL 树的核心特性"></a>AVL 树的核心特性</h2><h3 id="自平衡的定义"><a href="#自平衡的定义" class="headerlink" title="自平衡的定义"></a>自平衡的定义</h3><p>对于 <strong>树中的每一个节点</strong>，都必须满足：</p>
+<p><strong>左子树和右子树的高度差 ≤ 1</strong></p>
+<p>这个高度差我们称为该节点的 <strong>平衡因子（Balance Factor）</strong>，它的取值只能是：</p>
+<ul>
+<li>-1（右子树比左子树高一层）</li>
+<li>0（左右等高）</li>
+<li>+1（左子树比右子树高一层）</li>
+</ul>
+<p>一旦插入或删除节点后某个节点的平衡因子超过这个范围（比如变成了 2 或 -2），就需要<strong>通过旋转操作来恢复平衡</strong>。</p>
+<hr>
+<h2 id="为什么需要-AVL-树？"><a href="#为什么需要-AVL-树？" class="headerlink" title="为什么需要 AVL 树？"></a>为什么需要 AVL 树？</h2><p>普通的二叉查找树（BST）在最坏情况下会退化成链表，导致操作效率变为 O(n)。<br>而 AVL 树通过强制控制“平衡因子”，保持<strong>树高度为 O(log n)</strong>，确保：</p>
+<ul>
+<li>查找（Search）</li>
+<li>插入（Insert）</li>
+<li>删除（Delete）</li>
+</ul>
+<p>这些操作都能在对数时间内完成。</p>
+<hr>
+<h2 id="AVL-树的旋转操作"><a href="#AVL-树的旋转操作" class="headerlink" title="AVL 树的旋转操作"></a>AVL 树的旋转操作</h2><h3 id="单旋（Single-Rotation）"><a href="#单旋（Single-Rotation）" class="headerlink" title="单旋（Single Rotation）"></a>单旋（Single Rotation）</h3><ol>
+<li><strong>右旋（Right Rotation）</strong><br>用于左子树过高（LL 失衡）</li>
+<li><strong>左旋（Left Rotation）</strong><br>用于右子树过高（RR 失衡）</li>
+</ol>
+<h3 id="双旋（Double-Rotation）"><a href="#双旋（Double-Rotation）" class="headerlink" title="双旋（Double Rotation）"></a>双旋（Double Rotation）</h3><ol>
+<li><strong>先左旋再右旋（Left-Right Rotation）</strong><br>用于插入到左子树的右子树（LR 型失衡）</li>
+<li><strong>先右旋再左旋（Right-Left Rotation）</strong><br>用于插入到右子树的左子树（RL 型失衡）</li>
+</ol>
+<hr>
+<h2 id="操作复杂度"><a href="#操作复杂度" class="headerlink" title="操作复杂度"></a>操作复杂度</h2><table>
+<thead>
+<tr>
+<th>操作</th>
+<th>时间复杂度</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>查找</td>
+<td>O(log n)</td>
+</tr>
+<tr>
+<td>插入</td>
+<td>O(log n)（可能旋转）</td>
+</tr>
+<tr>
+<td>删除</td>
+<td>O(log n)（可能多次旋转）</td>
+</tr>
+</tbody></table>
+<p>AVL 树高度非常低，接近 log₂(n)，因此查找性能极优。</p>
+<hr>
+<h2 id="示例"><a href="#示例" class="headerlink" title="示例"></a>示例</h2><p>假设我们依次插入以下节点：10 → 20 → 30</p>
+<p>普通 BST 结构变成：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">10</span><br><span class="line">  \</span><br><span class="line">   20</span><br><span class="line">     \</span><br><span class="line">      30</span><br></pre></td></tr></table></figure>
+
+<p>此时树高度为 3，已经失衡，AVL 会做一次左旋，变成：</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">20</span><br><span class="line">   /  \</span><br><span class="line">  10  30</span><br></pre></td></tr></table></figure>
+
+<p>保持了平衡。</p>
+<hr>
+<h2 id="AVL-树-vs-红黑树"><a href="#AVL-树-vs-红黑树" class="headerlink" title="AVL 树 vs 红黑树"></a>AVL 树 vs 红黑树</h2><table>
+<thead>
+<tr>
+<th>对比项</th>
+<th>AVL 树</th>
+<th>红黑树</th>
+</tr>
+</thead>
+<tbody><tr>
+<td>平衡程度</td>
+<td>更严格（左右子树高差 ≤ 1）</td>
+<td>较宽松（限制黑节点数目）</td>
+</tr>
+<tr>
+<td>插入&#x2F;删除效率</td>
+<td>较慢，旋转多</td>
+<td>较快，旋转少</td>
+</tr>
+<tr>
+<td>查找效率</td>
+<td>稍快</td>
+<td>稍慢</td>
+</tr>
+<tr>
+<td>实际应用</td>
+<td>内存查找、读多写少</td>
+<td>系统结构、写操作多</td>
+</tr>
+<tr>
+<td>实现复杂度</td>
+<td>中</td>
+<td>高</td>
+</tr>
+</tbody></table>
+<hr>
+<h2 id="适用场景"><a href="#适用场景" class="headerlink" title="适用场景"></a>适用场景</h2><ul>
+<li>查找频率高，插入&#x2F;删除少的场景，如内存中的索引结构</li>
+<li>不适合频繁更新的场景，因为每次插入&#x2F;删除都可能触发旋转</li>
+</ul>
+<hr>
+<h1 id="B树与平衡二叉查找树的对比"><a href="#B树与平衡二叉查找树的对比" class="headerlink" title="B树与平衡二叉查找树的对比"></a>B树与平衡二叉查找树的对比</h1><table>
+<thead>
+<tr>
+<th>特性</th>
+<th><strong>B树</strong></th>
+<th><strong>平衡二叉查找树（如 AVL 树、红黑树）</strong></th>
+</tr>
+</thead>
+<tbody><tr>
+<td><strong>适用场景</strong></td>
+<td>大规模数据存储，尤其是磁盘存储；数据库索引，文件系统管理</td>
+<td>内存中的动态数据存储，集合、映射、优先队列等</td>
+</tr>
+<tr>
+<td><strong>树的结构</strong></td>
+<td>多路树，每个节点有多个子节点</td>
+<td>二叉树，每个节点最多有两个子节点</td>
+</tr>
+<tr>
+<td><strong>查找性能</strong></td>
+<td>O(log n)，但通常更适合磁盘存储，减少磁盘访问次数</td>
+<td>O(log n)，在内存中查找非常高效</td>
+</tr>
+<tr>
+<td><strong>节点大小</strong></td>
+<td>每个节点包含多个键和多个子指针，适合减少磁盘访问次数</td>
+<td>每个节点只包含一个键和最多两个子指针</td>
+</tr>
+<tr>
+<td><strong>插入&#x2F;删除操作</strong></td>
+<td>节点分裂&#x2F;合并，通常需要更复杂的操作来保持平衡</td>
+<td>旋转操作，通过保持平衡因子来保证平衡</td>
+</tr>
+<tr>
+<td><strong>支持范围查询</strong></td>
+<td>非常高效，能够快速查找和遍历范围数据</td>
+<td>支持范围查询，但对于大量范围查询不如 B 树高效</td>
+</tr>
+<tr>
+<td><strong>内存与存储</strong></td>
+<td>适合外存存储，能高效处理大量数据</td>
+<td>适用于内存数据管理，数据规模适中，内存存储</td>
+</tr>
+</tbody></table>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>Author: </span><span class="post-copyright-info"><a href="https://lyi61pd.github.io">lyi61pd</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>Link: </span><span class="post-copyright-info"><a href="https://lyi61pd.github.io/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">https://lyi61pd.github.io/2025/04/03/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>Copyright Notice: </span><span class="post-copyright-info">All articles on this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless otherwise stated.</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/%E6%95%B0%E6%8D%AE%E7%BB%93%E6%9E%84/">数据结构</a></div><div class="post-share"><div class="social-share" data-image="/blog_imgs/avatar.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/2025/04/03/Redis/" title="Redis"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info"><div class="info-1"><div class="info-item-1">Previous</div><div class="info-item-2">Redis</div></div><div class="info-2"><div class="info-item-1">I&#x2F;O多路复用是什么I&#x2F;O 多路复用（I&#x2F;O Multiplexing）是一种使得单个线程（或进程）能够同时监控多个 I&#x2F;O 操作的技术，它可以让程序有效地处理多个 I&#x2F;O 操作（如读取文件或网络连接）而无需为每个操作创建一个独立的线程或进程。I&#x2F;O 多路复用的核心思想是在一个线程内，能够同时处理多个 I&#x2F;O 操作，避免了频繁的线程切换和进程创建，从而提高了系统的性能和资源利用率。 在没有 I&#x2F;O 多路复用机制的情况下，当程序需要等待多个 I&#x2F;O 操作时（比如等待多个网络连接的读取操作），通常会采取阻塞方式，直到每个操作完成。这样每个操作都会阻塞当前线程，导致系统资源浪费。I&#x2F;O 多路复用通过在一个线程内同时监听多个 I&#x2F;O 操作，使得线程在等待 I&#x2F;O 操作完成时可以继续做其他工作。 I&#x2F;O 多路复用的工作原理I&#x2F;O 多路复用的基本原理是，程序通过一个系统调用（如 select、poll、epoll...</div></div></div></a><a class="pagination-related" href="/2025/04/08/C2/" title="C2"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-right"><div class="info-1"><div class="info-item-1">Next</div><div class="info-item-2">C2</div></div><div class="info-2"><div class="info-item-1">C2基础什么是 C2 框架C2（Command &amp; Control）框架是攻击链中控制阶段的核心部分，用于红队与植入目标主机的木马（Agent&#x2F;Beacon）之间建立通信，执行命令、收集信息、上传下载文件、做横向移动等等。C2 框架的本质是一套包含控制端（Server）与客户端（Payload&#x2F;Beacon）的通信系统。  主流 C2 框架架构设计拆解Cobalt Strike结构组成：  Team Server：C2 控制端，负责所有 Beacon 的统一管理。 Beacon：客户端的植入载荷，支持多种通信方式（HTTP、HTTPS、DNS、SMB 等）。 Aggressor Script：脚本引擎，支持行为自动化。 Client GUI：操作端，用于管理和执行命令。  特点：  Beacon 模块化强，通信协议支持自定义混淆。 强大的内存马管理与无文件攻击能力。 配合 Malleable C2 支持流量伪装成任意合法 Web 通信。  Sliver结构组成：  Server（sliver-server）：核心服务端，gRPC + TLS...</div></div></div></a></nav></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/blog_imgs/avatar.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">lyi61pd</div><div class="author-info-description">Im gonna be the best dragon</div><div class="site-data"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">16</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">17</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">0</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/lyi61pd"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>Contents</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#%E6%A0%91%E7%9A%84%E5%9F%BA%E6%9C%AC%E6%A6%82%E5%BF%B5"><span class="toc-number">1.</span> <span class="toc-text">树的基本概念</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%A0%91%E7%9A%84%E5%9F%BA%E6%9C%AC%E6%9C%AF%E8%AF%AD%EF%BC%9A"><span class="toc-number">1.1.</span> <span class="toc-text">树的基本术语：</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%A0%91%E7%9A%84%E7%B1%BB%E5%9E%8B"><span class="toc-number">1.2.</span> <span class="toc-text">树的类型</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BA%8C%E5%8F%89%E6%A0%91-Binary-Tree"><span class="toc-number">1.2.1.</span> <span class="toc-text">二叉树 (Binary Tree)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BA%8C%E5%8F%89%E6%9F%A5%E6%89%BE%E6%A0%91-Binary-Search-Tree-BST"><span class="toc-number">1.2.2.</span> <span class="toc-text">二叉查找树 (Binary Search Tree, BST)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%AE%8C%E5%85%A8%E4%BA%8C%E5%8F%89%E6%A0%91-Complete-Binary-Tree"><span class="toc-number">1.2.3.</span> <span class="toc-text">完全二叉树 (Complete Binary Tree)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%B9%B3%E8%A1%A1%E4%BA%8C%E5%8F%89%E6%A0%91-Balanced-Binary-Tree"><span class="toc-number">1.2.4.</span> <span class="toc-text">平衡二叉树 (Balanced Binary Tree)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#n%E5%8F%89%E6%A0%91-n-ary-Tree"><span class="toc-number">1.2.5.</span> <span class="toc-text">n叉树 (n-ary Tree)</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%A0%91%E7%9A%84%E9%81%8D%E5%8E%86"><span class="toc-number">1.3.</span> <span class="toc-text">树的遍历</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%89%8D%E5%BA%8F%E9%81%8D%E5%8E%86-Preorder-Traversal"><span class="toc-number">1.3.1.</span> <span class="toc-text">前序遍历 (Preorder Traversal)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%AD%E5%BA%8F%E9%81%8D%E5%8E%86-Inorder-Traversal"><span class="toc-number">1.3.2.</span> <span class="toc-text">中序遍历 (Inorder Traversal)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%90%8E%E5%BA%8F%E9%81%8D%E5%8E%86-Postorder-Traversal"><span class="toc-number">1.3.3.</span> <span class="toc-text">后序遍历 (Postorder Traversal)</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%B1%82%E6%AC%A1%E9%81%8D%E5%8E%86-Level-Order-Traversal"><span class="toc-number">1.3.4.</span> <span class="toc-text">层次遍历 (Level Order Traversal)</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%A0%91%E7%9A%84%E5%BA%94%E7%94%A8"><span class="toc-number">1.4.</span> <span class="toc-text">树的应用</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%8C%E5%8F%89%E6%9F%A5%E6%89%BE%E6%A0%91%EF%BC%88Binary-Search-Tree-BST%EF%BC%89"><span class="toc-number">1.5.</span> <span class="toc-text">二叉查找树（Binary Search Tree, BST）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%AE%9A%E4%B9%89"><span class="toc-number">1.5.1.</span> <span class="toc-text">定义</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%93%8D%E4%BD%9C"><span class="toc-number">1.5.2.</span> <span class="toc-text">操作</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%97%AE%E9%A2%98%EF%BC%9ABST-%E5%8F%AF%E8%83%BD%E9%80%80%E5%8C%96%E6%88%90%E9%93%BE%E8%A1%A8"><span class="toc-number">1.5.3.</span> <span class="toc-text">问题：BST 可能退化成链表</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B9%B3%E8%A1%A1%E4%BA%8C%E5%8F%89%E6%A0%91%E7%9A%84%E5%9F%BA%E6%9C%AC%E6%80%9D%E6%83%B3"><span class="toc-number">1.6.</span> <span class="toc-text">平衡二叉树的基本思想</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%98%AF%E5%B9%B3%E8%A1%A1"><span class="toc-number">1.6.1.</span> <span class="toc-text">什么是平衡</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%B9%B3%E8%A1%A1%E7%9A%84%E5%AE%9E%E7%8E%B0%E6%89%8B%E6%AE%B5%EF%BC%9A%E6%97%8B%E8%BD%AC%E6%93%8D%E4%BD%9C"><span class="toc-number">1.6.2.</span> <span class="toc-text">平衡的实现手段：旋转操作</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%BA%A2%E9%BB%91%E6%A0%91%E7%AE%80%E4%BB%8B"><span class="toc-number">1.7.</span> <span class="toc-text">红黑树简介</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%BA%A2%E9%BB%91%E6%A0%91%E7%9A%84%E4%BA%94%E4%B8%AA%E6%80%A7%E8%B4%A8"><span class="toc-number">1.7.1.</span> <span class="toc-text">红黑树的五个性质</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93"><span class="toc-number">1.8.</span> <span class="toc-text">总结</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E7%BA%A2%E9%BB%91%E6%A0%91%E4%B8%8E-AVL-%E6%80%A7%E8%83%BD%E5%AF%B9%E6%AF%94%EF%BC%8C%E5%A6%82%E4%BD%95%E9%80%89%E5%9E%8B"><span class="toc-number">2.</span> <span class="toc-text">红黑树与 AVL 性能对比，如何选型</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%BA%A2%E9%BB%91%E6%A0%91%E4%B8%8E-AVL-%E6%A0%91%E7%9A%84%E6%A0%B8%E5%BF%83%E5%B7%AE%E5%BC%82"><span class="toc-number">2.1.</span> <span class="toc-text">红黑树与 AVL 树的核心差异</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%97%B6%E9%97%B4%E5%A4%8D%E6%9D%82%E5%BA%A6%E5%AF%B9%E6%AF%94%EF%BC%88%E7%90%86%E8%AE%BA%E4%B8%8A%E7%9B%B8%E5%90%8C%EF%BC%89"><span class="toc-number">2.2.</span> <span class="toc-text">时间复杂度对比（理论上相同）</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E5%B7%A5%E7%A8%8B%E4%B8%AD%E6%9B%B4%E5%B8%B8%E7%94%A8%E7%BA%A2%E9%BB%91%E6%A0%91%EF%BC%9F"><span class="toc-number">2.3.</span> <span class="toc-text">为什么工程中更常用红黑树？</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#1-%E6%8F%92%E5%85%A5%E3%80%81%E5%88%A0%E9%99%A4%E6%80%A7%E8%83%BD%E6%9B%B4%E7%A8%B3%E5%AE%9A"><span class="toc-number">2.3.1.</span> <span class="toc-text">1. 插入、删除性能更稳定</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#2-%E6%8F%92%E5%85%A5-%E5%88%A0%E9%99%A4%E9%A2%91%E7%8E%87%E9%AB%98%E6%97%B6%EF%BC%8C%E7%BA%A2%E9%BB%91%E6%A0%91%E5%90%9E%E5%90%90%E9%87%8F%E4%BC%98%E4%BA%8E-AVL"><span class="toc-number">2.3.2.</span> <span class="toc-text">2. 插入&#x2F;删除频率高时，红黑树吞吐量优于 AVL</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%AE%9E%E9%99%85%E6%A1%88%E4%BE%8B%E5%AF%B9%E6%AF%94"><span class="toc-number">2.4.</span> <span class="toc-text">实际案例对比</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#Java-TreeMap-TreeSet"><span class="toc-number">2.4.1.</span> <span class="toc-text">Java TreeMap &#x2F; TreeSet</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#C-STL-%E7%9A%84-std-map-std-set"><span class="toc-number">2.4.2.</span> <span class="toc-text">C++ STL 的 std::map &#x2F; std::set</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#Linux-%E5%86%85%E6%A0%B8%E8%B0%83%E5%BA%A6%E5%99%A8-%E6%97%B6%E9%97%B4%E7%BA%A2%E9%BB%91%E6%A0%91%EF%BC%88RB-tree%EF%BC%89"><span class="toc-number">2.4.3.</span> <span class="toc-text">Linux 内核调度器 &#x2F; 时间红黑树（RB-tree）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%97%B6%E5%80%99%E9%80%89-AVL-%E6%A0%91%EF%BC%9F"><span class="toc-number">2.5.</span> <span class="toc-text">什么时候选 AVL 树？</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%B7%A5%E7%A8%8B%E9%80%89%E5%9E%8B%E5%BB%BA%E8%AE%AE%E6%80%BB%E7%BB%93"><span class="toc-number">2.6.</span> <span class="toc-text">工程选型建议总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93%E4%B8%80%E5%8F%A5%E8%AF%9D"><span class="toc-number">2.7.</span> <span class="toc-text">总结一句话</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#B%E6%A0%91%E3%80%81B-%E6%A0%91%E3%80%81%E8%B7%B3%E8%A1%A8"><span class="toc-number">3.</span> <span class="toc-text">B树、B+树、跳表</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#B-%E6%A0%91%EF%BC%88Balanced-Tree-%E5%A4%9A%E8%B7%AF%E5%B9%B3%E8%A1%A1%E6%9F%A5%E6%89%BE%E6%A0%91%EF%BC%89"><span class="toc-number">3.1.</span> <span class="toc-text">B 树（Balanced Tree &#x2F; 多路平衡查找树）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%98%AF%E4%BB%80%E4%B9%88"><span class="toc-number">3.1.1.</span> <span class="toc-text">是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%89%B9%E7%82%B9"><span class="toc-number">3.1.2.</span> <span class="toc-text">特点</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%B8%BE%E4%BE%8B%EF%BC%88%E4%BB%A53%E9%98%B6-B-%E6%A0%91%E4%B8%BA%E4%BE%8B%EF%BC%89"><span class="toc-number">3.1.3.</span> <span class="toc-text">举例（以3阶 B 树为例）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%9F%A5%E6%89%BE"><span class="toc-number">3.1.4.</span> <span class="toc-text">查找</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8F%92%E5%85%A5"><span class="toc-number">3.1.5.</span> <span class="toc-text">插入</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%88%A0%E9%99%A4"><span class="toc-number">3.1.6.</span> <span class="toc-text">删除</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%BA%94%E7%94%A8%E5%9C%BA%E6%99%AF"><span class="toc-number">3.1.7.</span> <span class="toc-text">应用场景</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#B-%E6%A0%91%EF%BC%88B-Tree-%E7%9A%84%E5%A2%9E%E5%BC%BA%E7%89%88%EF%BC%89"><span class="toc-number">3.2.</span> <span class="toc-text">B+ 树（B Tree 的增强版）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%98%AF%E4%BB%80%E4%B9%88-1"><span class="toc-number">3.2.1.</span> <span class="toc-text">是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%92%8C-B-%E6%A0%91%E7%9A%84%E5%8C%BA%E5%88%AB"><span class="toc-number">3.2.2.</span> <span class="toc-text">和 B 树的区别</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%89%B9%E7%82%B9-1"><span class="toc-number">3.2.3.</span> <span class="toc-text">特点</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%9F%A5%E6%89%BE-1"><span class="toc-number">3.2.4.</span> <span class="toc-text">查找</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%8C%83%E5%9B%B4%E6%9F%A5%E8%AF%A2"><span class="toc-number">3.2.5.</span> <span class="toc-text">范围查询</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%BA%94%E7%94%A8%E5%9C%BA%E6%99%AF-1"><span class="toc-number">3.2.6.</span> <span class="toc-text">应用场景</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%B7%B3%E8%A1%A8%EF%BC%88Skip-List%EF%BC%89"><span class="toc-number">3.3.</span> <span class="toc-text">跳表（Skip List）</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%98%AF%E4%BB%80%E4%B9%88-2"><span class="toc-number">3.3.1.</span> <span class="toc-text">是什么</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E7%BB%93%E6%9E%84"><span class="toc-number">3.3.2.</span> <span class="toc-text">结构</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%9F%A5%E6%89%BE-2"><span class="toc-number">3.3.3.</span> <span class="toc-text">查找</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E6%8F%92%E5%85%A5-%E5%88%A0%E9%99%A4"><span class="toc-number">3.3.4.</span> <span class="toc-text">插入 &#x2F; 删除</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%BA%94%E7%94%A8%E5%9C%BA%E6%99%AF-2"><span class="toc-number">3.3.5.</span> <span class="toc-text">应用场景</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%89%E8%80%85%E5%AF%B9%E6%AF%94%E6%80%BB%E7%BB%93"><span class="toc-number">3.4.</span> <span class="toc-text">三者对比总结</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%80%BB%E7%BB%93%E5%BB%BA%E8%AE%AE"><span class="toc-number">3.5.</span> <span class="toc-text">总结建议</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#B%E6%A0%91%E5%92%8CB-%E6%A0%91%E5%AF%B9%E6%AF%94"><span class="toc-number">3.6.</span> <span class="toc-text">B树和B+树对比</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#%E4%BB%80%E4%B9%88%E6%98%AF-AVL-%E6%A0%91%EF%BC%9F"><span class="toc-number">4.</span> <span class="toc-text">什么是 AVL 树？</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#AVL-%E6%A0%91%E7%9A%84%E6%A0%B8%E5%BF%83%E7%89%B9%E6%80%A7"><span class="toc-number">4.1.</span> <span class="toc-text">AVL 树的核心特性</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E8%87%AA%E5%B9%B3%E8%A1%A1%E7%9A%84%E5%AE%9A%E4%B9%89"><span class="toc-number">4.1.1.</span> <span class="toc-text">自平衡的定义</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%B8%BA%E4%BB%80%E4%B9%88%E9%9C%80%E8%A6%81-AVL-%E6%A0%91%EF%BC%9F"><span class="toc-number">4.2.</span> <span class="toc-text">为什么需要 AVL 树？</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#AVL-%E6%A0%91%E7%9A%84%E6%97%8B%E8%BD%AC%E6%93%8D%E4%BD%9C"><span class="toc-number">4.3.</span> <span class="toc-text">AVL 树的旋转操作</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8D%95%E6%97%8B%EF%BC%88Single-Rotation%EF%BC%89"><span class="toc-number">4.3.1.</span> <span class="toc-text">单旋（Single Rotation）</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%8F%8C%E6%97%8B%EF%BC%88Double-Rotation%EF%BC%89"><span class="toc-number">4.3.2.</span> <span class="toc-text">双旋（Double Rotation）</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E6%93%8D%E4%BD%9C%E5%A4%8D%E6%9D%82%E5%BA%A6"><span class="toc-number">4.4.</span> <span class="toc-text">操作复杂度</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E7%A4%BA%E4%BE%8B"><span class="toc-number">4.5.</span> <span class="toc-text">示例</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#AVL-%E6%A0%91-vs-%E7%BA%A2%E9%BB%91%E6%A0%91"><span class="toc-number">4.6.</span> <span class="toc-text">AVL 树 vs 红黑树</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E9%80%82%E7%94%A8%E5%9C%BA%E6%99%AF"><span class="toc-number">4.7.</span> <span class="toc-text">适用场景</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#B%E6%A0%91%E4%B8%8E%E5%B9%B3%E8%A1%A1%E4%BA%8C%E5%8F%89%E6%9F%A5%E6%89%BE%E6%A0%91%E7%9A%84%E5%AF%B9%E6%AF%94"><span class="toc-number">5.</span> <span class="toc-text">B树与平衡二叉查找树的对比</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>Recent Posts</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/07/30/Sliver/" title="Sliver">Sliver</a><time datetime="2025-07-30T00:00:00.000Z" title="Created 2025-07-30 00:00:00">2025-07-30</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/07/07/%E6%B1%87%E7%BC%96/" title="汇编">汇编</a><time datetime="2025-07-07T00:00:00.000Z" title="Created 2025-07-07 00:00:00">2025-07-07</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/06/30/Git/" title="Git">Git</a><time datetime="2025-06-30T00:00:00.000Z" title="Created 2025-06-30 00:00:00">2025-06-30</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/04/22/Python/" title="Python">Python</a><time datetime="2025-04-22T00:00:00.000Z" title="Created 2025-04-22 00:00:00">2025-04-22</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/04/17/CVE-2021-3156/" title="CVE-2021-3156">CVE-2021-3156</a><time datetime="2025-04-17T00:00:00.000Z" title="Created 2025-04-17 00:00:00">2025-04-17</time></div></div></div></div></div></div></main><footer id="footer" style="background-image: url(/blog_imgs/banner.png);"><div id="footer-wrap"><div class="copyright">&copy;2019 - 2025 By lyi61pd</div><div class="framework-info"><span>Framework </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>Theme </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="Reading Mode"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="Toggle Between Light and Dark Mode"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="Toggle Between Single-column and Double-column"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="Settings"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="Table of Contents"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="Back to Top"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">Search</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  Loading Database</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search..." type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

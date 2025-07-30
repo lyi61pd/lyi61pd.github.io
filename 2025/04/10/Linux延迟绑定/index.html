@@ -1,0 +1,288 @@
+<!DOCTYPE html><html lang="zh" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Linux延迟绑定 | lyi61pd</title><meta name="author" content="lyi61pd"><meta name="copyright" content="lyi61pd"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="Windows 下.lib .dll .obj .exe.lib 是静态链接文件 .dll 是动态链接文件 .obj 是编译时生成的中间代码文件，比如一个项目有多个.c 文件，编译时会先全部生成为中间 obj 文件，然后在进行链接生成最终的 exe 文件 .exe 文件是可执行文件 Linux 下.o .so .a.o 类似于 Windows 下的.obj 文件，是编译中间产物 .so 是动态链接">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Linux延迟绑定">
+<meta property="og:url" content="https://lyi61pd.github.io/2025/04/10/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/">
+<meta property="og:site_name" content="lyi61pd">
+<meta property="og:description" content="Windows 下.lib .dll .obj .exe.lib 是静态链接文件 .dll 是动态链接文件 .obj 是编译时生成的中间代码文件，比如一个项目有多个.c 文件，编译时会先全部生成为中间 obj 文件，然后在进行链接生成最终的 exe 文件 .exe 文件是可执行文件 Linux 下.o .so .a.o 类似于 Windows 下的.obj 文件，是编译中间产物 .so 是动态链接">
+<meta property="og:locale">
+<meta property="og:image" content="https://lyi61pd.github.io/blog_imgs/avatar.png">
+<meta property="article:published_time" content="2025-04-10T00:00:00.000Z">
+<meta property="article:modified_time" content="2025-07-30T03:40:55.099Z">
+<meta property="article:author" content="lyi61pd">
+<meta property="article:tag" content="Linux">
+<meta property="article:tag" content="二进制">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://lyi61pd.github.io/blog_imgs/avatar.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Linux延迟绑定",
+  "url": "https://lyi61pd.github.io/2025/04/10/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/",
+  "image": "https://lyi61pd.github.io/blog_imgs/avatar.png",
+  "datePublished": "2025-04-10T00:00:00.000Z",
+  "dateModified": "2025-07-30T03:40:55.099Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "lyi61pd",
+      "url": "https://lyi61pd.github.io/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/blog_imgs/avatar.png"><link rel="canonical" href="https://lyi61pd.github.io/2025/04/10/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          const mediaQueryDark = window.matchMedia('(prefers-color-scheme: dark)')
+          const mediaQueryLight = window.matchMedia('(prefers-color-scheme: light)')
+
+          if (theme === undefined) {
+            if (mediaQueryLight.matches) activateLightMode()
+            else if (mediaQueryDark.matches) activateDarkMode()
+            else {
+              const hour = new Date().getHours()
+              const isNight = hour <= 6 || hour >= 18
+              isNight ? activateDarkMode() : activateLightMode()
+            }
+            mediaQueryDark.addEventListener('change', () => {
+              if (saveToLocal.get('theme') === undefined) {
+                e.matches ? activateDarkMode() : activateLightMode()
+              }
+            })
+          } else {
+            theme === 'light' ? activateLightMode() : activateDarkMode()
+          }
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.xml","preload":true,"top_n_per_article":1,"unescape":true,"languages":{"hits_empty":"No results found for: ${query}","hits_stats":"${hits} articles found"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: 'Copy Successful',
+    error: 'Copy Failed',
+    noSupport: 'Browser Not Supported'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: 'Just now',
+    min: 'minutes ago',
+    hour: 'hours ago',
+    day: 'days ago',
+    month: 'months ago'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: 'Load More'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: true
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Linux延迟绑定',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="lyi61pd" type="application/atom+xml">
+</head><body><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/blog_imgs/banner.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">lyi61pd</span></a><a class="nav-page-title" href="/"><span class="site-name">Linux延迟绑定</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> Search</span></span></div></div></nav><div id="post-info"><h1 class="post-title">Linux延迟绑定</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">Created</span><time class="post-meta-date-created" datetime="2025-04-10T00:00:00.000Z" title="Created 2025-04-10 00:00:00">2025-04-10</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">Updated</span><time class="post-meta-date-updated" datetime="2025-07-30T03:40:55.099Z" title="Updated 2025-07-30 03:40:55">2025-07-30</time></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">Post Views:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="Windows-下-lib-dll-obj-exe"><a href="#Windows-下-lib-dll-obj-exe" class="headerlink" title="Windows 下.lib .dll .obj .exe"></a>Windows 下.lib .dll .obj .exe</h1><p>.lib 是静态链接文件</p>
+<p>.dll 是动态链接文件</p>
+<p>.obj 是编译时生成的中间代码文件，比如一个项目有多个.c 文件，编译时会先全部生成为中间 obj 文件，然后在进行链接生成最终的 exe 文件</p>
+<p>.exe 文件是可执行文件</p>
+<h1 id="Linux-下-o-so-a"><a href="#Linux-下-o-so-a" class="headerlink" title="Linux 下.o .so .a"></a>Linux 下.o .so .a</h1><p>.o 类似于 Windows 下的.obj 文件，是编译中间产物</p>
+<p>.so 是动态链接文件</p>
+<p>.a 是静态链接文件,可通过如下命令将中间文件加进 output.a 或者新生成一个 output.a</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">创建.a的命令</span><br><span class="line">ar rcx output.a test1.o test2.o</span><br></pre></td></tr></table></figure>
+
+<h2 id="Linux-延迟绑定机制"><a href="#Linux-延迟绑定机制" class="headerlink" title="Linux 延迟绑定机制"></a>Linux 延迟绑定机制</h2><h3 id="使用的-C-语言例子"><a href="#使用的-C-语言例子" class="headerlink" title="使用的 C 语言例子"></a>使用的 C 语言例子</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br></pre></td><td class="code"><pre><span class="line">//-------------------------------------------------------------------</span><br><span class="line">// FileName: test1.c</span><br><span class="line">// Author: hexuelin</span><br><span class="line">// Copyright (c) company***.</span><br><span class="line">//-------------------------------------------------------------------</span><br><span class="line">#include &lt;stdio.h&gt;</span><br><span class="line">void stack_overflow()&#123;</span><br><span class="line"> char buf[64] = &#123;0&#125;;</span><br><span class="line"> scanf(&quot;%s&quot;, &amp;buf);</span><br><span class="line"> printf(&quot;hello %s\n&quot;, &amp;buf);</span><br><span class="line">&#125;</span><br><span class="line">void get_shell()&#123;</span><br><span class="line"> system(&quot;/bin/sh&quot;);</span><br><span class="line">&#125;</span><br><span class="line">int main(int argc, char const *argv[])&#123;</span><br><span class="line"> stack_overflow();</span><br><span class="line"> return 0;</span><br><span class="line">&#125;</span><br></pre></td></tr></table></figure>
+
+<h2 id="静态链接和动态链接"><a href="#静态链接和动态链接" class="headerlink" title="静态链接和动态链接"></a>静态链接和动态链接</h2><p>静态链接在编译时把需要用到的内容都链接到文件中</p>
+<p>动态链接则是会在程序执行时再进行链接</p>
+<p>因此静态链接明显会比动态链接文件要大，同样的执行速度也会更快</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br></pre></td><td class="code"><pre><span class="line">#编译时加上-static参数就是静态链接</span><br><span class="line">gcc title.c -o title_static -static</span><br><span class="line">#不加参数默认就是动态链接</span><br><span class="line">gcc title.c -o title</span><br></pre></td></tr></table></figure>
+
+<p><img src="/blog_imgs/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/1744249758419-7eb479dc-c5a7-480c-b6c9-5e819fc619dc.png"></p>
+<p><img src="/blog_imgs/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/1744249762197-97ee9ea1-40e2-4e94-9614-7c13c154a324.png"></p>
+<h3 id="部分寄存器以及部分汇编指令"><a href="#部分寄存器以及部分汇编指令" class="headerlink" title="部分寄存器以及部分汇编指令"></a>部分寄存器以及部分汇编指令</h3><p>下面的汇编指令，部分用其他指令替代作为解释，但是实际上并不能用替代的指令，比如 rip,rsp 寄存器，原则上并不允许直接对他们进行操作</p>
+<ul>
+<li>rip</li>
+</ul>
+<p>指向下一条要执行的命令（还没有执行）</p>
+<p>push 1</p>
+<ul>
+<li>rsp</li>
+</ul>
+<p>栈顶</p>
+<ul>
+<li>rbp</li>
+</ul>
+<p>栈底</p>
+<ul>
+<li>mov rax,1</li>
+</ul>
+<p>rax&#x3D;1</p>
+<ul>
+<li>add rax,1</li>
+</ul>
+<p>rax&#x3D;rax+1</p>
+<ul>
+<li>push rax</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">add rsp,一个字长（64位一个字长就是64位，8字节）</span><br><span class="line">mov [rsp],rax</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>jmp 0x6666</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">mov rip,0x6666</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>call printf<a href="/plt">@plt </a></li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">#printf@plt是一个地址,这个地址的备注名叫做printf@plt</span><br><span class="line">push rip</span><br><span class="line">jmp printf@plt</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>leave</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">mov rsp,rbp</span><br><span class="line">pop rbp</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>retn</li>
+</ul>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">pop rip</span><br></pre></td></tr></table></figure>
+
+<h3 id="libc-so-6"><a href="#libc-so-6" class="headerlink" title="libc.so.6"></a>libc.so.6</h3><p>libc 是 Stantard C Library 的简称，它是符合 ANSI C 标准的一个标准函数库。</p>
+<p>在 Linux 操作系统下所说的 libc 即 glibc。glibc 是类 Unix 操作系统中使用最广泛的 libc 库，它的全称是 GNU C Library.</p>
+<h3 id="PLT-和-GOT"><a href="#PLT-和-GOT" class="headerlink" title="PLT 和 GOT"></a>PLT 和 GOT</h3><p><strong>PLT</strong>表称为过程链接表（procedure linkage table）</p>
+<p><strong>GOT</strong>表称为全局偏移量表（global offset table）</p>
+<p><strong>用不太严谨的话来概况，首先可以这么理解</strong>：</p>
+<p><strong>GOT</strong>表中存储真正的函数地址</p>
+<p><strong>PLT</strong>表中存储的是<strong>GOT</strong>表中的地址</p>
+<p>调用函数时会先到PLT表，再由PLT表导向GOT表</p>
+<p>**GOT[0]**包含.dynamic 段的地址，.dynamic 段包含了动态链接器用来绑定过程地址的信息，比如符号的位置和重定位信息</p>
+<p>**GOT[1]**包含动态链接器的标识</p>
+<p>**GOT[2]**包含动态链接器的延迟绑定代码的入口点，也就是调用_dl_runtime_resolve 函数，延迟绑定的时候要调用的函数</p>
+<p>printf 第一次调用的时候 got 表中是没有实际地址的， 第一次调用 printf 的时候  ，最终会调用_dl_runtime_resolve 函数，这个函数的作用就是把 prtinf 函数的实际地址写入到 GOT 表中，之后如果第二次，第三次。。。调用 printf 的时候就能从 GOT 表直接获取到 printf 的地址了</p>
+<p><strong>GOT</strong>表中正式的函数地址要从 GOT[3]开始，也就是第四项</p>
+<p>举例：PLT 表中 printf<a href="/plt">@plt </a></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">jmp pr****@go***.plt</span><br><span class="line">push printf在got表中的编号</span><br><span class="line">jmp plt表第一行指令</span><br></pre></td></tr></table></figure>
+
+<p>举例: GOT 表中 printf<a href="/got.plt">@got.plt </a></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">第一次执行printf时：PLT表中printf@plt的第二行</span><br><span class="line">第二三四次执行printf时：动态链接库libc中函数printf的真实地址</span><br></pre></td></tr></table></figure>
+
+<h3 id="延迟绑定机制下-函数初次调用流程图"><a href="#延迟绑定机制下-函数初次调用流程图" class="headerlink" title="延迟绑定机制下,函数初次调用流程图"></a>延迟绑定机制下,函数初次调用流程图</h3><p><img src="/blog_imgs/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/1744249859364-e8ace29f-3caf-46ab-b72d-b8a6a9abdab5.png"></p>
+<h3 id="IDA-查看-PLT-表"><a href="#IDA-查看-PLT-表" class="headerlink" title="IDA 查看 PLT 表"></a>IDA 查看 PLT 表</h3><p><img src="/blog_imgs/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/1744249774986-45335481-e777-4191-9e00-c872f5da5f7a.png"></p>
+<h3 id="IDA-查看-GOT-表"><a href="#IDA-查看-GOT-表" class="headerlink" title="IDA 查看 GOT 表"></a>IDA 查看 GOT 表</h3><p><img src="/blog_imgs/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/1744249779063-2d695725-69ae-4ddb-9ac7-3550bf6799f5.png"></p>
+<h3 id="plt-got-got-plt"><a href="#plt-got-got-plt" class="headerlink" title=".plt     .got    .got.plt"></a>.plt     .got    .got.plt</h3><p>这三者是 ELF 文件格式中的节(section)</p>
+<p>.plt 就是 PLT 表</p>
+<p>.got 和.got.plt 统称为 GOT 表</p>
+<p>.got 里面直接存储的就是函数调用的地址，部分函数地址是直接存放在.got 里面的</p>
+<p>PLT 表指向的是.got.plt</p>
+<p>printf@plt 指向的就是 pr****@go***.plt</p>
+<p>第一次调用时<a href="mailto:&#x70;&#114;&#x69;&#x6e;&#116;&#102;&#64;&#103;&#111;&#x74;&#46;&#112;&#x6c;&#116;">printf@got.plt</a>里指向的是 printf@plt 的下一行也就是 push printf 对应的 got 表里的序号</p>
+<p>放在.got 里的相当于.got.plt 第一次调用之后的状态</p>
+<h3 id="RELRO"><a href="#RELRO" class="headerlink" title="RELRO"></a>RELRO</h3><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br></pre></td><td class="code"><pre><span class="line">#关闭RELRO</span><br><span class="line">gcc title.c -o title_no -z norelro</span><br><span class="line">#部分开启RELRO(Partial RELRO不加参数默认是这个)</span><br><span class="line">gcc title.c -o title_partial -z lazy</span><br><span class="line">#完全开启RELRO(Full RELRO)</span><br><span class="line">gcc title.c -o title_full -z now</span><br></pre></td></tr></table></figure>
+
+<ul>
+<li>RELRO，<a target="_blank" rel="noopener" href="https://so.csdn.net/so/search?q=%E5%A0%86%E6%A0%88&spm=1001.2101.3001.7020">堆栈</a>地址随机化， 是一种用于加强对 binary 数据段的保护的技术。</li>
+<li>由于 GOT 和 PLT 以及延迟绑定的原因，在启用延迟绑定时，符号解析只发生在第一次使用的时候，该过程是通过 PLT 表进行的，解析完成后，相应的 GOT 条目会被修改为正确的函数地址。因此，在延迟绑定的情况下。.got.plt 必须可写，这就给了攻击者篡改地址劫持程序的执行的可能。</li>
+<li>RELRO（ReLocation Read-Only）机制的提出就是为了解决延迟绑定的安全问题，他将符号重定位表设置为只读，或者在程序启动时就解析并绑定所有的动态符号，从而避免 GOT 上的地址被篡改。RELRO 有两种形式：<ul>
+<li>partial RELRO：一些段（包括.dynamic,.got 等）在初始化后会被标记为只读。在 unbuntu16.04（GCC-5.4.0）上，默认开启 Partial RELRO。</li>
+<li>Full RELRO ：除了 Partial RELRO，延迟绑定将被禁止，所有的导入符号将在开始时被解析，.got.plt 段会被完全初始化为目标函数的最终地址，并被 mprotect 标记为只读，但其实.got.plt 会被直接合并到.got，也就看不到这段了。另外 link_map 和_dl_runtime_reolve 的地址也不会被装入。开启 Full RELRO 会对程序启动时的性能造成一定的影响，但也只有这样才能防止攻击者篡改 GOT。</li>
+</ul>
+</li>
+</ul>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>Author: </span><span class="post-copyright-info"><a href="https://lyi61pd.github.io">lyi61pd</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>Link: </span><span class="post-copyright-info"><a href="https://lyi61pd.github.io/2025/04/10/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/">https://lyi61pd.github.io/2025/04/10/Linux%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>Copyright Notice: </span><span class="post-copyright-info">All articles on this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless otherwise stated.</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/Linux/">Linux</a><a class="post-meta__tags" href="/tags/%E4%BA%8C%E8%BF%9B%E5%88%B6/">二进制</a></div><div class="post-share"><div class="social-share" data-image="/blog_imgs/avatar.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related" href="/2025/04/08/C2/" title="C2"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info"><div class="info-1"><div class="info-item-1">Previous</div><div class="info-item-2">C2</div></div><div class="info-2"><div class="info-item-1">C2基础什么是 C2 框架C2（Command &amp; Control）框架是攻击链中控制阶段的核心部分，用于红队与植入目标主机的木马（Agent&#x2F;Beacon）之间建立通信，执行命令、收集信息、上传下载文件、做横向移动等等。C2 框架的本质是一套包含控制端（Server）与客户端（Payload&#x2F;Beacon）的通信系统。  主流 C2 框架架构设计拆解Cobalt Strike结构组成：  Team Server：C2 控制端，负责所有 Beacon 的统一管理。 Beacon：客户端的植入载荷，支持多种通信方式（HTTP、HTTPS、DNS、SMB 等）。 Aggressor Script：脚本引擎，支持行为自动化。 Client GUI：操作端，用于管理和执行命令。  特点：  Beacon 模块化强，通信协议支持自定义混淆。 强大的内存马管理与无文件攻击能力。 配合 Malleable C2 支持流量伪装成任意合法 Web 通信。  Sliver结构组成：  Server（sliver-server）：核心服务端，gRPC + TLS...</div></div></div></a><a class="pagination-related" href="/2025/04/10/Mysql/" title="Mysql"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-right"><div class="info-1"><div class="info-item-1">Next</div><div class="info-item-2">Mysql</div></div><div class="info-2"><div class="info-item-1">Mysql基础MySQL 是一个开源的关系型数据库管理系统，说白了就是可以用它来存储、查询和管理数据。比如写个网站，有用户、有商品、有订单，这些数据全都可以塞进 MySQL 里。 它属于 “关系型” 的那种数据库，意思就是数据是按表格来组织的（跟 Excel 差不多的感觉），表和表之间可以建立关系。 MySQL 的流行程度非常高，从小公司到大厂基本都会用，生态也非常完善。 MySQL 和其他数据库有什么不同？ MySQL 是开源的，可以免费用 跟 PostgreSQL 比，它性能高点但功能稍少 跟 Oracle 或 SQL Server 比，它更轻量、容易上手  数据库的基本概念用 MySQL 最常打交道的几个东西：  数据库（Database）：相当于一个文件夹，里面放表 表（Table）：一张张结构化的表格 行（Row）：每条数据就像表格的一行 列（Column）：表格的一列，也就是字段 主键（Primary Key）：每一行的唯一标识，比如...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>Related Articles</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2025/04/11/Debian%E8%BD%AF%E4%BB%B6%E5%8C%85%E5%92%8C%E4%BB%93%E5%BA%93%E8%A7%84%E8%8C%83/" title="Debian软件包和仓库规范"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-04-11</div><div class="info-item-2">Debian软件包和仓库规范</div></div><div class="info-2"><div class="info-item-1">版本号 deb-version(5)  Debian Policy...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/blog_imgs/avatar.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">lyi61pd</div><div class="author-info-description">Im gonna be the best dragon</div><div class="site-data"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">16</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">17</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">0</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/lyi61pd"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>Contents</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#Windows-%E4%B8%8B-lib-dll-obj-exe"><span class="toc-number">1.</span> <span class="toc-text">Windows 下.lib .dll .obj .exe</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#Linux-%E4%B8%8B-o-so-a"><span class="toc-number">2.</span> <span class="toc-text">Linux 下.o .so .a</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#Linux-%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A%E6%9C%BA%E5%88%B6"><span class="toc-number">2.1.</span> <span class="toc-text">Linux 延迟绑定机制</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E4%BD%BF%E7%94%A8%E7%9A%84-C-%E8%AF%AD%E8%A8%80%E4%BE%8B%E5%AD%90"><span class="toc-number">2.1.1.</span> <span class="toc-text">使用的 C 语言例子</span></a></li></ol></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E9%9D%99%E6%80%81%E9%93%BE%E6%8E%A5%E5%92%8C%E5%8A%A8%E6%80%81%E9%93%BE%E6%8E%A5"><span class="toc-number">2.2.</span> <span class="toc-text">静态链接和动态链接</span></a><ol class="toc-child"><li class="toc-item toc-level-3"><a class="toc-link" href="#%E9%83%A8%E5%88%86%E5%AF%84%E5%AD%98%E5%99%A8%E4%BB%A5%E5%8F%8A%E9%83%A8%E5%88%86%E6%B1%87%E7%BC%96%E6%8C%87%E4%BB%A4"><span class="toc-number">2.2.1.</span> <span class="toc-text">部分寄存器以及部分汇编指令</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#libc-so-6"><span class="toc-number">2.2.2.</span> <span class="toc-text">libc.so.6</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#PLT-%E5%92%8C-GOT"><span class="toc-number">2.2.3.</span> <span class="toc-text">PLT 和 GOT</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#%E5%BB%B6%E8%BF%9F%E7%BB%91%E5%AE%9A%E6%9C%BA%E5%88%B6%E4%B8%8B-%E5%87%BD%E6%95%B0%E5%88%9D%E6%AC%A1%E8%B0%83%E7%94%A8%E6%B5%81%E7%A8%8B%E5%9B%BE"><span class="toc-number">2.2.4.</span> <span class="toc-text">延迟绑定机制下,函数初次调用流程图</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#IDA-%E6%9F%A5%E7%9C%8B-PLT-%E8%A1%A8"><span class="toc-number">2.2.5.</span> <span class="toc-text">IDA 查看 PLT 表</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#IDA-%E6%9F%A5%E7%9C%8B-GOT-%E8%A1%A8"><span class="toc-number">2.2.6.</span> <span class="toc-text">IDA 查看 GOT 表</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#plt-got-got-plt"><span class="toc-number">2.2.7.</span> <span class="toc-text">.plt     .got    .got.plt</span></a></li><li class="toc-item toc-level-3"><a class="toc-link" href="#RELRO"><span class="toc-number">2.2.8.</span> <span class="toc-text">RELRO</span></a></li></ol></li></ol></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>Recent Posts</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/07/30/Sliver/" title="Sliver">Sliver</a><time datetime="2025-07-30T00:00:00.000Z" title="Created 2025-07-30 00:00:00">2025-07-30</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/07/07/%E6%B1%87%E7%BC%96/" title="汇编">汇编</a><time datetime="2025-07-07T00:00:00.000Z" title="Created 2025-07-07 00:00:00">2025-07-07</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/06/30/Git/" title="Git">Git</a><time datetime="2025-06-30T00:00:00.000Z" title="Created 2025-06-30 00:00:00">2025-06-30</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/04/22/Python/" title="Python">Python</a><time datetime="2025-04-22T00:00:00.000Z" title="Created 2025-04-22 00:00:00">2025-04-22</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/04/17/CVE-2021-3156/" title="CVE-2021-3156">CVE-2021-3156</a><time datetime="2025-04-17T00:00:00.000Z" title="Created 2025-04-17 00:00:00">2025-04-17</time></div></div></div></div></div></div></main><footer id="footer" style="background-image: url(/blog_imgs/banner.png);"><div id="footer-wrap"><div class="copyright">&copy;2019 - 2025 By lyi61pd</div><div class="framework-info"><span>Framework </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>Theme </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="Reading Mode"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="Toggle Between Light and Dark Mode"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="Toggle Between Single-column and Double-column"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="Settings"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="Table of Contents"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="Back to Top"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">Search</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  Loading Database</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search..." type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>

